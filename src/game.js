@@ -23,6 +23,8 @@ function rand(lo, hi) { return lo + Math.random() * (hi - lo); }
 function randInt(lo, hi) { return Math.floor(rand(lo, hi + 1)); }
 
 const BASE_POS = [HOME, FIRST, SECOND, THIRD];
+const PERSPECTIVE = 0.28;  // height → upward screen-offset ratio
+const ARC_GRAVITY = 360;   // px/s²
 
 // ── Entity classes ────────────────────────────────────────────────────────────
 class Ball {
@@ -30,47 +32,83 @@ class Ball {
   reset() {
     this.x = MOUND.x; this.y = MOUND.y;
     this.vx = 0; this.vy = 0;
+    this.vz = 0;       // upward velocity (px/s)
+    this.height = 0;   // current height above ground
+    this.inArc = false;
+    this.landX = null; this.landY = null;
     this.trail = [];
     this.active = false;
   }
   update(dt) {
     if (!this.active) return;
-    this.trail.push({ x: this.x, y: this.y });
-    if (this.trail.length > 10) this.trail.shift();
+    const renderY = this.y - this.height * PERSPECTIVE;
+    this.trail.push({ x: this.x, y: renderY });
+    if (this.trail.length > 14) this.trail.shift();
     this.x += this.vx * dt;
     this.y += this.vy * dt;
+    if (this.inArc) {
+      this.height += this.vz * dt;
+      this.vz -= ARC_GRAVITY * dt;
+      if (this.height <= 0) {
+        this.height = 0;
+        this.inArc = false;
+        this.active = false; // ball has landed
+      }
+    }
   }
   draw(ctx) {
+    // Landing target ring (pulsing)
+    if (this.inArc && this.landX !== null) {
+      const pulse = 0.3 + Math.sin(Date.now() / 120) * 0.18;
+      ctx.beginPath();
+      ctx.arc(this.landX, this.landY, 10, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255,220,0,${pulse})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(this.landX, this.landY, 3, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,220,0,${pulse * 0.8})`;
+      ctx.fill();
+    }
     // Trail
     for (let i = 0; i < this.trail.length; i++) {
-      const a = (i / this.trail.length) * 0.35;
+      const a = (i / this.trail.length) * 0.3;
       ctx.beginPath();
       ctx.arc(this.trail[i].x, this.trail[i].y, 3.5, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(255,255,255,${a})`;
       ctx.fill();
     }
     if (!this.active) return;
-    // Shadow
+    const renderY = this.y - this.height * PERSPECTIVE;
+    // Ground shadow — scales down as ball rises
+    if (this.inArc) {
+      const fade = Math.max(0.05, 0.5 * (1 - this.height / 150));
+      const sw   = Math.max(2, 7 * (1 - this.height / 200));
+      ctx.beginPath();
+      ctx.ellipse(this.x, this.y, sw, sw * 0.5, 0, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(0,0,0,${fade})`;
+      ctx.fill();
+    }
+    // Ball (grows slightly when high — parallax pop)
+    const sz = 6 + this.height * 0.02;
     ctx.beginPath();
-    ctx.ellipse(this.x, this.y + 3, 5, 3, 0, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.ellipse(this.x + 1, renderY + 2, sz * 0.55, sz * 0.3, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
     ctx.fill();
-    // Ball
     ctx.beginPath();
-    ctx.arc(this.x, this.y, 7, 0, Math.PI * 2);
+    ctx.arc(this.x, renderY, sz, 0, Math.PI * 2);
     ctx.fillStyle = '#fff';
     ctx.fill();
     ctx.strokeStyle = '#e63946';
-    ctx.lineWidth = 1.2;
+    ctx.lineWidth = 1.5;
     ctx.stroke();
-    // Seam lines
     ctx.strokeStyle = '#e63946';
     ctx.lineWidth = 0.8;
     ctx.beginPath();
-    ctx.arc(this.x - 2, this.y, 4, -0.5, 0.5);
+    ctx.arc(this.x - 2, renderY, sz * 0.6, -0.5, 0.5);
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(this.x + 2, this.y, 4, Math.PI - 0.5, Math.PI + 0.5);
+    ctx.arc(this.x + 2, renderY, sz * 0.6, Math.PI - 0.5, Math.PI + 0.5);
     ctx.stroke();
   }
 }
@@ -307,22 +345,42 @@ export class Game {
     playHit(quality);
 
     // Determine hit direction angle (from home toward outfield)
-    // Timing: early swing → pull right, late → oppo left
-    const earlyLate = (bally - platey) / 20; // negative=early, positive=late
-    const baseAngle = Math.PI * 1.5; // straight up from home (north)
-    const pullOffset = -earlyLate * 0.5; // pull right = negative x in screen right
-    const angle = baseAngle + pullOffset + rand(-0.35, 0.35);
+    const earlyLate = (bally - platey) / 20;
+    const baseAngle = Math.PI * 1.5;
+    const pullOffset = -earlyLate * 0.5;
+    const hitAngle = baseAngle + pullOffset + rand(-0.35, 0.35);
 
-    // Speed of hit
     const maxSpeed = 420 + this._batter.power * 20;
     const speed = hitPower * maxSpeed;
-    this.ball.vx = Math.cos(angle) * speed;
-    this.ball.vy = Math.sin(angle) * speed;
 
-    // Pre-determine outcome
     this._pendingOutcome = this._calcHitOutcome(quality, hitPower, speed);
+    this._launchArc(hitAngle, hitPower);
     this._setState(S.HIT_ANIM);
     this._startFielderChase();
+  }
+
+  _launchArc(angle, power) {
+    // Landing distances (px from HOME) by outcome type
+    const LAND_DISTS   = { homer: 320, triple: 260, double: 195, single: 105, out: 60 };
+    const FLIGHT_TIMES = { homer: 2.5, triple: 2.0, double: 1.55, single: 1.05, out: 0.55 };
+    const type = this._pendingOutcome.type;
+    const dist = LAND_DISTS[type]   + rand(-12, 12);
+    const ft   = FLIGHT_TIMES[type] + rand(-0.08, 0.08);
+
+    const lx = HOME.x + Math.cos(angle) * dist;
+    const ly = HOME.y + Math.sin(angle) * dist;
+
+    this.ball.x  = HOME.x;
+    this.ball.y  = HOME.y;
+    this.ball.vx = (lx - HOME.x) / ft;
+    this.ball.vy = (ly - HOME.y) / ft;
+    this.ball.height = 0;
+    this.ball.vz     = 0.5 * ARC_GRAVITY * ft;
+    this.ball.inArc  = true;
+    this.ball.active = true;
+    this.ball.trail  = [];
+    this.ball.landX  = lx;
+    this.ball.landY  = ly;
   }
 
   _calcHitOutcome(quality, power, speed) {
@@ -338,19 +396,17 @@ export class Game {
   }
 
   _startFielderChase() {
-    // Find nearest fielder to where ball is heading
-    const bx = this.ball.x + this.ball.vx * 0.8;
-    const by = this.ball.y + this.ball.vy * 0.8;
+    const lx = this.ball.landX ?? (this.ball.x + this.ball.vx * 0.8);
+    const ly = this.ball.landY ?? (this.ball.y + this.ball.vy * 0.8);
     let best = -1, bestD = Infinity;
     this.fielders.forEach((f, i) => {
-      const d = Math.hypot(f.x - bx, f.y - by);
+      const d = Math.hypot(f.hx - lx, f.hy - ly);
       if (d < bestD) { bestD = d; best = i; }
     });
     this.activeFielderIdx = best;
     if (best >= 0) {
-      // Send fielder toward landing zone
-      const landX = clamp(bx, FX - FENCE_R, FX + FENCE_R);
-      const landY = clamp(by, HUD_H + 10, CTRL_Y - 10);
+      const landX = clamp(lx, FX - FENCE_R + 5, FX + FENCE_R - 5);
+      const landY = clamp(ly, HUD_H + 10, CTRL_Y - 10);
       this.fielders[best].moveTo(landX, landY);
     }
   }
@@ -463,11 +519,10 @@ export class Game {
         const power = rand(0.25, 0.85);
         const angle = Math.PI * 1.5 + rand(-0.5, 0.5);
         const speed = power * (380 + this._batter.power * 18);
-        this.ball.vx = Math.cos(angle) * speed;
-        this.ball.vy = Math.sin(angle) * speed;
         const quality = power > 0.6 ? 'PERFECT' : power > 0.4 ? 'GOOD' : 'WEAK';
         playHit(quality);
         this._pendingOutcome = this._calcHitOutcome(quality, power, speed);
+        this._launchArc(angle, power);
         this._setState(S.HIT_ANIM);
         this._startFielderChase();
       } else {
@@ -562,12 +617,10 @@ export class Game {
       }
 
       case S.HIT_ANIM: {
-        // Ball flies until it leaves field or 1.6 seconds
-        const outOfBounds = this.ball.x < 10 || this.ball.x > W - 10 ||
-          this.ball.y < HUD_H || this.ball.y > CTRL_Y;
-        if (outOfBounds || this.stateTimer > 1.8) {
+        // Resolve when ball lands (arc ends) or timeout
+        const ballLanded = !this.ball.active && !this.ball.inArc && this.stateTimer > 0.15;
+        if (ballLanded || this.stateTimer > 3.8) {
           this.ball.active = false;
-          // Fielder "catches" ball
           if (this.activeFielderIdx >= 0) {
             this.fielders[this.activeFielderIdx].hasBall = true;
           }
@@ -643,12 +696,6 @@ export class Game {
     // Draw runners
     const runTeam = this.topInning ? this.cpuTeam : this.playerTeam;
     this.runners.forEach(r => r.draw(ctx, runTeam));
-
-    // Draw pitcher
-    const pitchTeam = this.topInning ? this.playerTeam : this.cpuTeam;
-    const pitchSkin = pitchTeam.players[0].skin;
-    const pitcherBob = Math.sin(this.pitcherAnim * Math.PI) * -5;
-    drawKid(ctx, MOUND.x, MOUND.y - 8 + pitcherBob, pitchTeam.primary, pitchTeam.secondary, pitchSkin, 15);
 
     // Draw batter
     const batTeam  = this.topInning ? this.cpuTeam : this.playerTeam;

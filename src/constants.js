@@ -20,7 +20,7 @@ export const CTRL_Y = 558;  // controls start y
 
 // Fielder home positions (CPU team defending)
 export const FIELDER_HOMES = [
-  { x: 195, y: 340, role: 'P'  },  // pitcher
+  { x: 195, y: 480, role: 'C'  },  // catcher — behind home plate
   { x: 340, y: 318, role: '1B' },  // first baseman
   { x: 268, y: 248, role: '2B' },  // second baseman
   { x: 122, y: 248, role: 'SS' },  // shortstop
