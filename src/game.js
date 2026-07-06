@@ -1,13 +1,13 @@
 import {
   W, H, HOME, FIRST, SECOND, THIRD, MOUND, FX, FY, FENCE_R,
   FIELDER_HOMES, S, PITCHES, INNINGS, OUTS_PER_INNING,
-  STRIKES_PER_OUT, BALLS_PER_WALK, CTRL_Y, HUD_H, THROW_POSITIONS,
+  STRIKES_PER_OUT, BALLS_PER_WALK, THROW_DECISION_TIME, CTRL_Y, HUD_H,
 } from './constants.js';
 import { drawField, highlightBase } from './field.js';
 import { drawKid, PLAYER_TEAM, CPU_TEAM } from './characters.js';
 import {
   drawScoreboard, drawControlsBg, drawSwingButton, drawSwingModeButtons,
-  drawPitchButtons, drawPitchButton, drawThrowButtons, drawThrowDecision,
+  drawPitchButtons, drawPitchButton, drawThrowDecision,
   drawRunnerAdvance, drawMessage, drawCenterMessage, drawBatterInfo,
   drawStrikeZone, drawTapToContinue,
 } from './ui.js';
@@ -540,9 +540,32 @@ export class Game {
     }
   }
 
-  _handleThrow(baseIdx) {
+  _getAutoThrowTarget() {
+    const fielder = this.activeFielderIdx >= 0
+      ? this.fielders[this.activeFielderIdx]
+      : null;
+    const fromX = fielder ? fielder.x : MOUND.x;
+    const fromY = fielder ? fielder.y : MOUND.y;
+    const candidates = this.runners
+      .filter(r => !r.out && !r.scored)
+      .map(r => {
+        const basePos = BASE_POS[r.targetBase];
+        const throwTime = Math.hypot(basePos.x - fromX, basePos.y - fromY) / 340;
+        const runSpeed = (r.player.speed / 9) * 145 + 50;
+        const runTime = Math.hypot(r.x - basePos.x, r.y - basePos.y) / runSpeed;
+        return { targetBase: r.targetBase, margin: runTime - throwTime };
+      });
+    if (candidates.length === 0) return 1;
+    candidates.sort((a, b) =>
+      (b.margin > 0) - (a.margin > 0)
+      || b.margin - a.margin
+      || b.targetBase - a.targetBase
+    );
+    return candidates[0].targetBase;
+  }
+
+  _handleThrow(targetBase = this._getAutoThrowTarget()) {
     if (this.state !== S.THROW_DECISION) return;
-    const targetBase = [1, 2, 3, 0][baseIdx];
     const basePos = BASE_POS[targetBase];
     const fielder = this.activeFielderIdx >= 0 ? this.fielders[this.activeFielderIdx] : null;
 
@@ -967,7 +990,7 @@ export class Game {
       }
 
       case S.THROW_DECISION:
-        if (this.stateTimer > 2.8) this._setState(S.PLAY_RESULT);
+        if (this.stateTimer > THROW_DECISION_TIME) this._handleThrow();
         break;
 
       case S.THROW_ANIM: {
@@ -1061,6 +1084,9 @@ export class Game {
     this.runners.forEach(r => {
       if (!r.out && !r.scored) highlightBase(ctx, r.base, '#FFD700');
     });
+    if (this.state === S.THROW_DECISION) {
+      highlightBase(ctx, this._getAutoThrowTarget(), '#4cc9f0');
+    }
 
     // Draw fielders
     const defTeam = this.topInning ? this.playerTeam : this.cpuTeam;
@@ -1210,7 +1236,7 @@ export class Game {
         break;
 
       case S.THROW_DECISION:
-        drawThrowDecision(ctx, this);
+        drawThrowDecision(ctx, this, this._getAutoThrowTarget());
         break;
 
       case S.THROW_ANIM:
@@ -1432,10 +1458,10 @@ export class Game {
         break;
 
       case S.THROW_DECISION: {
-        const tr = 38; // hit radius for throw buttons
-        THROW_POSITIONS.forEach((pos, i) => {
-          if (Math.hypot(p.x - pos.x, p.y - pos.y) < tr) this._handleThrow(i);
-        });
+        const bx = 42, by = CTRL_Y + 34, bw = W - 84, bh = 88;
+        if (p.x >= bx && p.x <= bx + bw && p.y >= by && p.y <= by + bh) {
+          this._handleThrow();
+        }
         break;
       }
 

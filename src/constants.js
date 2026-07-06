@@ -36,6 +36,7 @@ export const INNINGS          = 3;
 export const OUTS_PER_INNING  = 3;
 export const STRIKES_PER_OUT  = 3;
 export const BALLS_PER_WALK   = 4;
+export const THROW_DECISION_TIME = 3.2;
 
 // States
 export const S = {
@@ -51,14 +52,6 @@ export const S = {
   INNING_END:     'inning_end',
   GAME_OVER:      'game_over',
 };
-
-// Throw button positions (diamond layout in controls area)
-export const THROW_POSITIONS = [
-  { x: W - 58, y: CTRL_Y + 58  },  // 1B → right
-  { x: W / 2,  y: CTRL_Y + 28  },  // 2B → top center
-  { x: 58,     y: CTRL_Y + 58  },  // 3B → left
-  { x: W / 2,  y: CTRL_Y + 118 },  // HOME → bottom center
-];
 
 // Pitch definitions
 export const PITCHES = [

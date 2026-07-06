@@ -1,4 +1,6 @@
-import { W, H, HUD_H, CTRL_Y, INNINGS, PITCHES, THROW_POSITIONS } from './constants.js';
+import {
+  W, H, HUD_H, CTRL_Y, INNINGS, PITCHES, THROW_DECISION_TIME,
+} from './constants.js';
 
 // ── Scoreboard ────────────────────────────────────────────────────────────────
 export function drawScoreboard(ctx, gs) {
@@ -219,78 +221,38 @@ export function drawPitchButton(ctx) {
   ctx.fillText('PITCH!', W/2, by + bh/2);
 }
 
-const THROW_LABELS = ['1B', '2B', '3B', 'HOME'];
-const THROW_COLORS = ['#f4a261', '#4cc9f0', '#a8dadc', '#e63946'];
-const THROW_R = 30;
-
-// Throw buttons shown when fielder has ball (player fielding)
-export function drawThrowButtons(ctx) {
-  THROW_POSITIONS.forEach((pos, i) => {
-    ctx.beginPath();
-    ctx.arc(pos.x, pos.y, THROW_R, 0, Math.PI * 2);
-    ctx.fillStyle = THROW_COLORS[i];
-    ctx.fill();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(pos.x, pos.y, THROW_R, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 13px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(THROW_LABELS[i], pos.x, pos.y);
-  });
-}
-
-// Throw decision overlay (player fielding — choose where to throw after CPU hit)
-export function drawThrowDecision(ctx, gs) {
-  const timeLeft = Math.max(0, 2.8 - gs.stateTimer);
-  const pct = timeLeft / 2.8;
+// One-tap fielding control. The game automatically chooses the best base.
+export function drawThrowDecision(ctx, gs, targetBase) {
+  const timeLeft = Math.max(0, THROW_DECISION_TIME - gs.stateTimer);
+  const pct = timeLeft / THROW_DECISION_TIME;
+  const baseLabel = ['HOME', '1B', '2B', '3B'][targetBase] ?? '1B';
 
   ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
   ctx.font = 'bold 13px monospace';
   ctx.fillStyle = '#FFD700';
-  ctx.fillText('THROW TO:', W / 2, CTRL_Y + 15);
+  ctx.fillText(`AUTO TARGET: ${baseLabel}`, W / 2, CTRL_Y + 18);
 
-  // Countdown bar
   ctx.fillStyle = 'rgba(255,255,255,0.1)';
   ctx.fillRect(20, CTRL_Y + 4, W - 40, 5);
   ctx.fillStyle = pct > 0.4 ? '#4cc9f0' : '#e63946';
   ctx.fillRect(20, CTRL_Y + 4, (W - 40) * pct, 5);
 
-  THROW_POSITIONS.forEach((pos, i) => {
-    const targetBase = [1, 2, 3, 0][i];
-    const hasRunner = gs.runners.some(r =>
-      !r.out && !r.scored && r.targetBase === targetBase
-    );
-
-    if (hasRunner) {
-      ctx.shadowColor = '#FFD700';
-      ctx.shadowBlur = 14;
-    }
-    ctx.beginPath();
-    ctx.arc(pos.x, pos.y, THROW_R, 0, Math.PI * 2);
-    ctx.fillStyle = hasRunner ? THROW_COLORS[i] : `${THROW_COLORS[i]}66`;
-    ctx.fill();
-    ctx.strokeStyle = hasRunner ? '#FFD700' : 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = hasRunner ? 2.5 : 1.5;
-    ctx.beginPath();
-    ctx.arc(pos.x, pos.y, THROW_R, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    ctx.fillStyle = hasRunner ? '#fff' : 'rgba(255,255,255,0.45)';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = `bold ${hasRunner ? 14 : 12}px monospace`;
-    ctx.fillText(THROW_LABELS[i], pos.x, pos.y - (hasRunner ? 4 : 0));
-    if (hasRunner) {
-      ctx.font = '10px monospace';
-      ctx.fillStyle = '#FFD700';
-      ctx.fillText('RUN!', pos.x, pos.y + 12);
-    }
-  });
+  const bx = 42, by = CTRL_Y + 34, bw = W - 84, bh = 88;
+  ctx.shadowColor = '#4cc9f0';
+  ctx.shadowBlur = 16;
+  ctx.fillStyle = '#1d6e2e';
+  ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 18); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#7fff7f';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 18); ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 28px monospace';
+  ctx.fillText(`THROW TO ${baseLabel}!`, W / 2, by + 36);
+  ctx.fillStyle = 'rgba(255,255,255,0.72)';
+  ctx.font = '11px monospace';
+  ctx.fillText('TAP ANYWHERE ON THIS BUTTON', W / 2, by + 65);
 }
 
 // Runner advance panel (player batting — choose to send runners after hit)
