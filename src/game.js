@@ -38,6 +38,11 @@ function lerp(a, b, t) { return a + (b - a) * t; }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function rand(lo, hi) { return lo + Math.random() * (hi - lo); }
 function randInt(lo, hi) { return Math.floor(rand(lo, hi + 1)); }
+function runnerSpeed(player) {
+  // Map ratings to Statcast's approximate 23–30 ft/sec competitive range.
+  const feetPerSecond = 22 + clamp(player.speed, 1, 10) * 0.8;
+  return (feetPerSecond / 27) * 160;
+}
 
 const BASE_POS = [HOME, FIRST, SECOND, THIRD];
 const PERSPECTIVE = 0.28;  // height → upward screen-offset ratio
@@ -205,7 +210,7 @@ class Runner {
       const dx = target.x - this.x;
       const dy = target.y - this.y;
       const d = Math.hypot(dx, dy);
-      const spd = (this.player.speed / 9) * 145 + 50;
+      const spd = runnerSpeed(this.player);
       if (d < 4) {
         this.x = target.x; this.y = target.y;
         this.base = this.targetBase;
@@ -548,11 +553,12 @@ export class Game {
   }
 
   _getAutoThrowTarget() {
-    if (this._groundBallPlay) return 1;
-
-    const fielder = this.activeFielderIdx >= 0
+    const activeFielder = this.activeFielderIdx >= 0
       ? this.fielders[this.activeFielderIdx]
       : null;
+    if (this._groundBallPlay || activeFielder?.role === 'SS') return 1;
+
+    const fielder = activeFielder;
     const fromX = fielder ? fielder.x : MOUND.x;
     const fromY = fielder ? fielder.y : MOUND.y;
     const candidates = this.runners
@@ -560,7 +566,7 @@ export class Game {
       .map(r => {
         const basePos = BASE_POS[r.targetBase];
         const throwTime = Math.hypot(basePos.x - fromX, basePos.y - fromY) / 340;
-        const runSpeed = (r.player.speed / 9) * 145 + 50;
+        const runSpeed = runnerSpeed(r.player);
         const runTime = Math.hypot(r.x - basePos.x, r.y - basePos.y) / runSpeed;
         return { targetBase: r.targetBase, margin: runTime - throwTime };
       });
@@ -589,7 +595,7 @@ export class Game {
       if (r.out || r.scored) return;
       if (r.targetBase === targetBase) {
         const runDist  = Math.hypot(r.x - basePos.x, r.y - basePos.y);
-        const runSpeed = (r.player.speed / 9) * 145 + 50;
+        const runSpeed = runnerSpeed(r.player);
         if (throwTime < runDist / runSpeed && runDist > 8) outRunner = r;
       }
     });
@@ -628,7 +634,7 @@ export class Game {
       if (fielder) {
         const throwDist = Math.hypot(fielder.x - HOME.x, fielder.y - HOME.y);
         const runDist   = Math.hypot(runner.x - HOME.x, runner.y - HOME.y);
-        const runSpeed  = (runner.player.speed / 9) * 145 + 50;
+        const runSpeed  = runnerSpeed(runner.player);
         if ((throwDist / 340) < (runDist / runSpeed) - 0.2) thrownOut = true;
       }
       if (thrownOut) {
@@ -668,7 +674,8 @@ export class Game {
     }
 
     const luck = (this._batter.luck ?? 5) / 10;
-    const roll = Math.random() * 0.22 + power * 0.78 + luck * 0.12;
+    const powerBonus = (this._batter.power - 7) * 0.025;
+    const roll = Math.random() * 0.22 + power * 0.78 + luck * 0.12 + powerBonus;
 
     if (swingMode === 'power') {
       // Power swing: more extra-base hits, less likely to get singles
@@ -1284,6 +1291,13 @@ export class Game {
             W/2,
             CTRL_Y + 92
           );
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 12px monospace';
+          ctx.fillText(
+            `${this._batter.name}   PWR ${this._batter.power}   SPD ${this._batter.speed}`,
+            W/2,
+            CTRL_Y + 120
+          );
         }
         break;
 
@@ -1560,8 +1574,8 @@ export class Game {
         const active = this.runners.filter(r => !r.out && !r.scored);
         active.forEach((runner, i) => {
           if (i > 2) return;
-          const ry = CTRL_Y + 30 + i * 44;
-          const bx = W - 118, by = ry - 2, bw = 100, bh = 36;
+          const ry = CTRL_Y + 28 + i * 38;
+          const bx = W - 118, by = ry - 1, bw = 100, bh = 32;
           if (p.x >= bx && p.x <= bx + bw && p.y >= by && p.y <= by + bh) {
             this._handleRunnerAdvance(this.runners.indexOf(runner));
           }

@@ -282,20 +282,24 @@ export function drawRunnerAdvance(ctx, gs) {
 
   active.forEach((runner, i) => {
     if (i > 2) return; // max 3 rows in panel
-    const ry = CTRL_Y + 30 + i * 44;
+    const ry = CTRL_Y + 28 + i * 38;
     const nb = runner.targetBase + 1;
     const nextLabel = nb >= 4 ? 'SCORE!' : `→ ${BASE_NAMES[nb]}`;
 
     ctx.textAlign = 'left';
     ctx.font = 'bold 11px monospace';
     ctx.fillStyle = '#fff';
-    ctx.fillText(runner.player.name, 16, ry + 8);
+    ctx.fillText(runner.player.name, 16, ry + 7);
     ctx.font = '10px monospace';
     ctx.fillStyle = '#aaa';
-    ctx.fillText(`on ${BASE_NAMES[runner.targetBase]}`, 16, ry + 22);
+    ctx.fillText(
+      `on ${BASE_NAMES[runner.targetBase]}  •  SPD ${runner.player.speed}`,
+      16,
+      ry + 19
+    );
 
     // Advance button
-    const bx = W - 118, by = ry - 2, bw = 100, bh = 36;
+    const bx = W - 118, by = ry - 1, bw = 100, bh = 32;
     ctx.fillStyle = nb >= 4 ? '#1d6e2e' : '#1a3a6b';
     ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 10); ctx.fill();
     ctx.strokeStyle = nb >= 4 ? '#5ec97a' : '#4cc9f0';

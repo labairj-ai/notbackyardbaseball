@@ -5,11 +5,11 @@ export const PLAYER_TEAM = {
   primary:   '#e63946',
   secondary: '#fff',
   players: [
-    { name: 'KYLE',   power: 9, speed: 6, eye: 7, skin: SKINS[0] },
-    { name: 'JESS',   power: 6, speed: 9, eye: 9, skin: SKINS[1] },
-    { name: 'MARCUS', power: 8, speed: 7, eye: 6, skin: SKINS[2] },
-    { name: 'TARA',   power: 5, speed: 9, eye: 9, skin: SKINS[3] },
-    { name: 'DEVON',  power:10, speed: 5, eye: 5, skin: SKINS[4] },
+    { name: 'KYLE',   power: 9, speed: 5, eye: 7, skin: SKINS[0] },
+    { name: 'JESS',   power: 5, speed: 9, eye: 9, skin: SKINS[1] },
+    { name: 'MARCUS', power: 7, speed: 7, eye: 7, skin: SKINS[2] },
+    { name: 'TARA',   power: 6, speed: 8, eye: 8, skin: SKINS[3] },
+    { name: 'DEVON',  power:10, speed: 4, eye: 5, skin: SKINS[4] },
   ],
 };
 
@@ -20,9 +20,9 @@ export const CPU_TEAM = {
   players: [
     { name: 'RICK',  power: 8, speed: 6, eye: 8, skin: SKINS[1] },
     { name: 'PAM',   power: 5, speed: 9, eye: 9, skin: SKINS[3] },
-    { name: 'ZACH',  power: 9, speed: 7, eye: 6, skin: SKINS[0] },
+    { name: 'ZACH',  power: 9, speed: 5, eye: 6, skin: SKINS[0] },
     { name: 'LENA',  power: 6, speed: 8, eye: 8, skin: SKINS[2] },
-    { name: 'OMAR',  power: 7, speed: 8, eye: 7, skin: SKINS[4] },
+    { name: 'OMAR',  power: 7, speed: 7, eye: 7, skin: SKINS[4] },
   ],
 };
 
