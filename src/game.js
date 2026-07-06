@@ -194,12 +194,13 @@ class Ball {
 }
 
 class Fielder {
-  constructor(home, color, skin) {
+  constructor(home, color, skin, avatar = null) {
     this.hx = home.x; this.hy = home.y;
     this.x = home.x;  this.y = home.y;
     this.role = home.role;
     this.color = color;
     this.skin = skin;
+    this.avatar = avatar;
     this.tx = home.x;  this.ty = home.y; // target
     this.speed = rand(130, 165);
     this.hasBall = false;
@@ -222,7 +223,7 @@ class Fielder {
   draw(ctx, team) {
     const bob = Math.sin(this.anim) * 2;
     const lean = Math.sin(this.throwAnim * Math.PI) * 5;
-    drawKid(ctx, this.x + lean, this.y - bob, this.color, team.secondary, this.skin, 13);
+    drawKid(ctx, this.x + lean, this.y - bob, this.color, team.secondary, this.skin, 13, this.avatar);
     if (this.throwAnim > 0) {
       ctx.strokeStyle = 'rgba(255,255,255,0.65)';
       ctx.lineWidth = 2;
@@ -302,7 +303,7 @@ class Runner {
     if (this.scored || this.out) return;
     // Running bob: two bounces per stride cycle
     const bob = this.running ? Math.abs(Math.sin(this._anim * Math.PI)) * 5 : 0;
-    drawKid(ctx, this.x, this.y - bob, team.primary, team.secondary, this.player.skin, 15);
+    drawKid(ctx, this.x, this.y - bob, team.primary, team.secondary, this.player.skin, 15, this.player.avatar);
   }
 }
 
@@ -377,9 +378,13 @@ export class Game {
     // CPU always fields when player bats; player fields when CPU bats
     const fieldsForCpu = !this.topInning; // player bats bottom = CPU fields
     const team = fieldsForCpu ? this.cpuTeam : this.playerTeam;
-    const skins = team.players.map(p => p.skin);
     this.fielders = FIELDER_HOMES.map((h, i) =>
-      new Fielder(h, team.primary, skins[i % skins.length])
+      new Fielder(
+        h,
+        team.primary,
+        team.players[i % team.players.length].skin,
+        team.players[i % team.players.length].avatar
+      )
     );
     this.activeFielderIdx = -1;
   }
@@ -591,7 +596,10 @@ export class Game {
     // Running character
     if (!h.done && h.batter && h.team) {
       const bob = Math.sin(this.animTimer * 14) * 3;
-      drawKid(ctx, h.x, h.y - bob, h.team.primary, h.team.secondary, h.batter.skin, 20);
+      drawKid(
+        ctx, h.x, h.y - bob,
+        h.team.primary, h.team.secondary, h.batter.skin, 20, h.batter.avatar
+      );
     }
 
     // "HOME RUN!!!" banner
@@ -1371,7 +1379,7 @@ export class Game {
       const bx = HOME.x - 20 + swingOff;
       const by = HOME.y - 5;
       this._drawBat(ctx, bx, by, this.swingAnim);
-      drawKid(ctx, bx, by, batTeam.primary, batTeam.secondary, batSkin, 17);
+      drawKid(ctx, bx, by, batTeam.primary, batTeam.secondary, batSkin, 17, this._batter.avatar);
     }
 
     // Ball
@@ -1606,7 +1614,10 @@ export class Game {
       ctx.fillText(team.players.map(p => p.name).join('  '), 58, ty + 32);
 
       // Draw tiny kid
-      drawKid(ctx, W - 65, ty + 22, team.primary, team.secondary, team.players[0].skin, 12);
+      drawKid(
+        ctx, W - 65, ty + 22,
+        team.primary, team.secondary, team.players[0].skin, 12, team.players[0].avatar
+      );
     });
 
     // Innings badge
