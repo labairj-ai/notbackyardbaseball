@@ -63,6 +63,13 @@ function isFoulAngle(angle) {
   return angle < LEFT_FOUL_LINE || angle > RIGHT_FOUL_LINE;
 }
 
+function isFairLandingPoint(x, y) {
+  const distanceTowardField = HOME.y - y;
+  if (distanceTowardField < 0) return false;
+  // The chalk lines are fair territory, so allow a small rendering tolerance.
+  return Math.abs(x - HOME.x) <= distanceTowardField + 1;
+}
+
 function remainingRunnerDistance(runner, targetBase) {
   if (!runner.running || runner.nextBase > targetBase) {
     return Math.hypot(runner.x - BASE_POS[targetBase].x, runner.y - BASE_POS[targetBase].y);
@@ -348,6 +355,7 @@ export class Game {
     this._runsScoredOnPlay = null;
     this._groundBallPlay = false;
     this._fieldingStarted = false;
+    this._hitQuality = null;
     this.menuMusicOn = false;
   }
 
@@ -490,6 +498,7 @@ export class Game {
     playHit(quality);
 
     this._pendingOutcome = this._calcHitOutcome(quality, hitPower, this.swingMode);
+    this._hitQuality = quality;
     this._launchArc(hitAngle, hitPower);
     this._fieldingStarted = false;
     this._setState(S.HIT_ANIM);
@@ -756,11 +765,11 @@ export class Game {
     return mk('out', 0, 'FLYOUT!', '#ff8f8f');
   }
 
-  _resolveFoulBall(quality) {
+  _resolveFoulBall(quality, { landed = false } = {}) {
     this.ball.reset();
 
     // A sharp foul tip caught by the catcher is a live strike and may be strike three.
-    const foulTip = Math.random() < 0.10;
+    const foulTip = !landed && Math.random() < 0.10;
     if (foulTip) {
       playStrike();
       this.strikes++;
@@ -771,7 +780,7 @@ export class Game {
     }
 
     // A foul fly that is legally caught retires the batter. Ground fouls cannot be caught.
-    const caughtFoul = quality !== 'WEAK' && Math.random() < 0.18;
+    const caughtFoul = !landed && quality !== 'WEAK' && Math.random() < 0.18;
     if (caughtFoul) {
       playCatch();
       playOut();
@@ -1005,6 +1014,7 @@ export class Game {
         const angle = Math.PI * 1.5 + rand(-0.9, 0.9);
         const quality = power > 0.6 ? 'PERFECT' : power > 0.4 ? 'GOOD' : 'WEAK';
         playHit(quality);
+        this._hitQuality = quality;
         if (isFoulAngle(angle)) {
           this._resolveFoulBall(quality);
           return;
@@ -1115,6 +1125,18 @@ export class Game {
       case S.HIT_ANIM: {
         const ballLanded = this.ball.grounded && this.stateTimer > 0.15;
         const isHomer = this._pendingOutcome?.type === 'homer';
+
+        if (
+          ballLanded
+          && !isHomer
+          && !isFairLandingPoint(this.ball.x, this.ball.y)
+        ) {
+          this.ball.grounded = false;
+          this._pendingOutcome = null;
+          this._groundBallPlay = false;
+          this._resolveFoulBall(this._hitQuality ?? 'WEAK', { landed: true });
+          break;
+        }
 
         if (ballLanded && isHomer) {
           this.ball.grounded = false;
