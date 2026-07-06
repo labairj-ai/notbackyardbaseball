@@ -250,6 +250,16 @@ const MUSIC_D = [
   [784,Q],[659,Q],[523,H],[0,DQ],
 ];
 
+// Calmer title-screen theme.
+const MUSIC_MENU = [
+  [392,Q],[523,Q],[659,Q],[523,Q],
+  [440,Q],[587,Q],[659,H],[0,E],
+  [523,Q],[659,Q],[784,Q],[659,Q],
+  [587,Q],[523,Q],[440,H],[0,E],
+  [392,E],[440,E],[523,Q],[587,E],[659,E],
+  [523,Q],[440,Q],[392,H],[0,DQ],
+];
+
 const SONGS = [MUSIC_A, MUSIC_B, MUSIC_C, MUSIC_D];
 
 function scheduleMusic() {
@@ -281,13 +291,17 @@ function scheduleMusic() {
 export function startMusic(inning) {
   if (musicPlaying && currentInning === inning) return;
   stopMusic();
-  let songIdx = Math.floor(Math.random() * SONGS.length);
-  if (SONGS.length > 1 && songIdx === lastSongIdx) {
-    songIdx = (songIdx + 1 + Math.floor(Math.random() * (SONGS.length - 1))) % SONGS.length;
+  if (inning === 'menu') {
+    currentSong = MUSIC_MENU;
+  } else {
+    let songIdx = Math.floor(Math.random() * SONGS.length);
+    if (SONGS.length > 1 && songIdx === lastSongIdx) {
+      songIdx = (songIdx + 1 + Math.floor(Math.random() * (SONGS.length - 1))) % SONGS.length;
+    }
+    lastSongIdx = songIdx;
+    currentSong = SONGS[songIdx];
   }
-  lastSongIdx = songIdx;
   currentInning = inning;
-  currentSong = SONGS[songIdx];
   ac();
   musicPlaying = true;
   noteIdx = 0;

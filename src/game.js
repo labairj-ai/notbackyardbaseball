@@ -272,6 +272,8 @@ export class Game {
     this.swingMode = null;  // human must choose 'normal' or 'power' before each pitch
     this._throwAnim = null;
     this._runsScoredOnPlay = null;
+    this._groundBallPlay = false;
+    this.menuMusicOn = false;
   }
 
   _startHalfInning() {
@@ -546,6 +548,8 @@ export class Game {
   }
 
   _getAutoThrowTarget() {
+    if (this._groundBallPlay) return 1;
+
     const fielder = this.activeFielderIdx >= 0
       ? this.fielders[this.activeFielderIdx]
       : null;
@@ -850,6 +854,7 @@ export class Game {
     this.ball.reset();
     this.ball.x = MOUND.x;
     this.ball.y = MOUND.y;
+    this._groundBallPlay = false;
     this._setState(this.outs >= OUTS_PER_INNING ? S.INNING_END : S.PRE_PITCH);
   }
 
@@ -869,7 +874,17 @@ export class Game {
         const angle = Math.PI * 1.5 + rand(-0.5, 0.5);
         const quality = power > 0.6 ? 'PERFECT' : power > 0.4 ? 'GOOD' : 'WEAK';
         playHit(quality);
-        this._pendingOutcome = this._calcHitOutcome(quality, power, 'normal');
+        if (quality === 'WEAK') {
+          // Every fielded ground ball is a play on the batter-runner at first.
+          this._groundBallPlay = true;
+          this._pendingOutcome = {
+            type: 'single', bases: 1,
+            label: 'GROUND BALL!', color: '#f4a261',
+          };
+        } else {
+          this._groundBallPlay = false;
+          this._pendingOutcome = this._calcHitOutcome(quality, power, 'normal');
+        }
         this._launchArc(angle, power);
         this._setState(S.HIT_ANIM);
         this._startFielderChase();
@@ -1072,6 +1087,7 @@ export class Game {
             this._showMsg('SAFE!', '#7fff7f');
           }
           this._runsScoredOnPlay = null;
+          this._groundBallPlay = false;
           this._throwAnim = null;
           if (this.state !== S.INNING_END) this._setState(S.PLAY_RESULT);
         }
@@ -1398,19 +1414,34 @@ export class Game {
     ctx.scale(pulse, pulse);
     ctx.fillStyle = '#e63946';
     ctx.beginPath();
-    ctx.roundRect(-90, -32, 180, 64, 18);
+    ctx.roundRect(-125, -32, 250, 64, 18);
     ctx.fill();
     ctx.strokeStyle = '#FFD700';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.roundRect(-90, -32, 180, 64, 18);
+    ctx.roundRect(-125, -32, 250, 64, 18);
     ctx.stroke();
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold 28px monospace';
+    ctx.font = 'bold 25px monospace';
     ctx.fillText('▶ PLAY BALL!', 0, 0);
     ctx.restore();
+
+    // Browser audio requires a user gesture, so music has an explicit toggle.
+    const mx = W / 2 - 110, my = 492, mw = 220, mh = 46;
+    ctx.fillStyle = this.menuMusicOn ? '#1d6e2e' : '#1a3a6b';
+    ctx.beginPath(); ctx.roundRect(mx, my, mw, mh, 12); ctx.fill();
+    ctx.strokeStyle = this.menuMusicOn ? '#7fff7f' : '#4cc9f0';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.roundRect(mx, my, mw, mh, 12); ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText(
+      this.menuMusicOn ? '♫ HOME MUSIC: ON' : '♫ PLAY HOME MUSIC',
+      W / 2,
+      my + mh / 2
+    );
 
     // Credits
     ctx.fillStyle = '#444';
@@ -1481,7 +1512,13 @@ export class Game {
   pointerDown(p) {
     switch (this.state) {
       case S.MENU:
-        this._startHalfInning();
+        if (p.x >= 70 && p.x <= 320 && p.y >= 398 && p.y <= 462) {
+          this._startHalfInning();
+        } else if (p.x >= 85 && p.x <= 305 && p.y >= 492 && p.y <= 538) {
+          this.menuMusicOn = !this.menuMusicOn;
+          if (this.menuMusicOn) startMusic('menu');
+          else stopMusic();
+        }
         break;
 
       case S.GAME_OVER:
