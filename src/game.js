@@ -92,8 +92,14 @@ class Ball {
     this.landX = null; this.landY = null;
     this.trail = [];
     this.active = false;
+    this.grounded = false;
+    this.groundTimer = 0;
   }
   update(dt) {
+    if (this.grounded) {
+      this.groundTimer += dt;
+      return;
+    }
     if (!this.active) return;
     const renderY = this.y - this.height * PERSPECTIVE;
     this.trail.push({ x: this.x, y: renderY });
@@ -106,7 +112,11 @@ class Ball {
       if (this.height <= 0) {
         this.height = 0;
         this.inArc = false;
-        this.active = false; // ball has landed
+        this.x = this.landX ?? this.x;
+        this.y = this.landY ?? this.y;
+        this.active = false;
+        this.grounded = true;
+        this.groundTimer = 0;
       }
     }
   }
@@ -132,8 +142,11 @@ class Ball {
       ctx.fillStyle = `rgba(255,255,255,${a})`;
       ctx.fill();
     }
-    if (!this.active) return;
-    const renderY = this.y - this.height * PERSPECTIVE;
+    if (!this.active && !this.grounded) return;
+    const bounceHeight = this.grounded
+      ? Math.abs(Math.sin(this.groundTimer * 13)) * Math.max(0, 9 - this.groundTimer * 16)
+      : 0;
+    const renderY = this.y - this.height * PERSPECTIVE - bounceHeight;
     // Ground shadow — scales down as ball rises
     if (this.inArc) {
       const fade = Math.max(0.05, 0.5 * (1 - this.height / 150));
@@ -328,6 +341,7 @@ export class Game {
     this._throwAnim = null;
     this._runsScoredOnPlay = null;
     this._groundBallPlay = false;
+    this._fieldingStarted = false;
     this.menuMusicOn = false;
   }
 
@@ -483,8 +497,8 @@ export class Game {
 
     this._pendingOutcome = this._calcHitOutcome(quality, hitPower, this.swingMode);
     this._launchArc(hitAngle, hitPower);
+    this._fieldingStarted = false;
     this._setState(S.HIT_ANIM);
-    this._startFielderChase();
   }
 
   _launchArc(angle, power) {
@@ -629,8 +643,11 @@ export class Game {
     return candidates[0].targetBase;
   }
 
-  _handleThrow(targetBase = this._getAutoThrowTarget()) {
-    if (this.state !== S.THROW_DECISION) return;
+  _handleThrow(
+    targetBase = this._getAutoThrowTarget(),
+    { forceSafe = false, nextState = S.PLAY_RESULT } = {}
+  ) {
+    if (this.state !== S.THROW_DECISION && !forceSafe) return;
     const basePos = BASE_POS[targetBase];
     const fielder = this.activeFielderIdx >= 0 ? this.fielders[this.activeFielderIdx] : null;
 
@@ -662,6 +679,8 @@ export class Game {
       fromX, fromY, toX: basePos.x, toY: basePos.y,
       progress: 0, duration, outRunner, targetBase,
       forceOut: Boolean(outRunner?.forceOut),
+      forceSafe,
+      nextState,
     };
     this.ball.reset();
     this.ball.x = fromX; this.ball.y = fromY;
@@ -965,8 +984,8 @@ export class Game {
           this._pendingOutcome = this._calcHitOutcome(quality, power, 'normal');
         }
         this._launchArc(angle, power);
+        this._fieldingStarted = false;
         this._setState(S.HIT_ANIM);
-        this._startFielderChase();
       } else {
         // CPU misses
         playSwingMiss();
@@ -1057,14 +1076,39 @@ export class Game {
       }
 
       case S.HIT_ANIM: {
-        const ballLanded = !this.ball.active && !this.ball.inArc && this.stateTimer > 0.15;
-        if (ballLanded || this.stateTimer > 3.8) {
+        const ballLanded = this.ball.grounded && this.stateTimer > 0.15;
+        const isHomer = this._pendingOutcome?.type === 'homer';
+
+        if (ballLanded && isHomer) {
+          this.ball.grounded = false;
+          const homerBatter = this._batter;
+          const homerTeam = this.topInning ? this.cpuTeam : this.playerTeam;
+          this._resolveHit();
+          this._startHomerCelebration(homerBatter, homerTeam);
+          break;
+        }
+
+        if (ballLanded && !this._fieldingStarted) {
+          this._fieldingStarted = true;
+          this._startFielderChase();
+          this._sendFieldersToCoverBases();
+          this._showMsg('BALL DOWN!', '#4cc9f0', 1.1);
+        }
+
+        const activeFielder = this.activeFielderIdx >= 0
+          ? this.fielders[this.activeFielderIdx]
+          : null;
+        const fielderAtBall = activeFielder
+          && Math.hypot(activeFielder.x - activeFielder.tx, activeFielder.y - activeFielder.ty) < 7;
+        const fieldingTimedOut = this._fieldingStarted && this.stateTimer > 6;
+
+        if (this._fieldingStarted && (fielderAtBall || fieldingTimedOut)) {
           this.ball.active = false;
+          this.ball.grounded = false;
           if (this.activeFielderIdx >= 0) {
             this.fielders[this.activeFielderIdx].hasBall = true;
             playCatch();
           }
-          this._sendFieldersToCoverBases();
           const fieldingRole = this.activeFielderIdx >= 0
             ? this.fielders[this.activeFielderIdx].role
             : null;
@@ -1081,18 +1125,17 @@ export class Game {
           }
 
           const preOutcome  = this._pendingOutcome;
-          const homerBatter = preOutcome?.type === 'homer' ? this._batter : null;
-          const homerTeam   = preOutcome?.type === 'homer'
-            ? (this.topInning ? this.cpuTeam : this.playerTeam) : null;
           this._resolveHit();
           if (this.state === S.INNING_END) break;
 
-          if (preOutcome?.type === 'homer') {
-            this._startHomerCelebration(homerBatter, homerTeam);
-          } else if (this.topInning && preOutcome?.type !== 'out' && this.runners.length > 0) {
+          if (this.topInning && preOutcome?.type !== 'out' && this.runners.length > 0) {
             this._setState(S.THROW_DECISION);
           } else if (!this.topInning && preOutcome?.type !== 'out') {
-            this._setState(S.RUNNER_ADVANCE);
+            const batterRunner = this.runners[this.runners.length - 1];
+            this._handleThrow(
+              batterRunner?.targetBase ?? 1,
+              { forceSafe: true, nextState: S.RUNNER_ADVANCE }
+            );
           } else {
             this._setState(S.PLAY_RESULT);
           }
@@ -1162,7 +1205,7 @@ export class Game {
         if (t.progress >= 1) {
           this.ball.active = false;
           playCatch();
-          if (t.outRunner && !t.outRunner.out && !t.outRunner.scored) {
+          if (!t.forceSafe && t.outRunner && !t.outRunner.out && !t.outRunner.scored) {
             t.outRunner.out = true;
             this.outs++;
             playSlide();
@@ -1184,7 +1227,7 @@ export class Game {
           this._runsScoredOnPlay = null;
           this._groundBallPlay = false;
           this._throwAnim = null;
-          if (this.state !== S.INNING_END) this._setState(S.PLAY_RESULT);
+          if (this.state !== S.INNING_END) this._setState(t.nextState ?? S.PLAY_RESULT);
         }
         break;
       }
@@ -1392,9 +1435,13 @@ export class Game {
       case S.HIT_ANIM:
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#fff';
+        ctx.fillStyle = this._fieldingStarted ? '#4cc9f0' : '#fff';
         ctx.font = 'bold 16px monospace';
-        ctx.fillText('⚾', W/2, CTRL_Y + 72);
+        ctx.fillText(
+          this._fieldingStarted ? 'DEFENSE CHASING THE BALL...' : '⚾ BALL IN PLAY',
+          W/2,
+          CTRL_Y + 72
+        );
         break;
 
       case S.HOMER_RUN:
