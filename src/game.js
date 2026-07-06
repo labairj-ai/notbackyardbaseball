@@ -407,7 +407,10 @@ export class Game {
 
   _beginPitch() {
     const pitch = PITCHES[this.selectedPitchIdx];
-    const T = dist(MOUND, HOME) / pitch.speed;
+    // CPU pitches are slowed down when the child is batting to provide
+    // a readable reaction window. Player-thrown pitches retain full speed.
+    const pitchSpeed = this.topInning ? pitch.speed : pitch.speed * 0.72;
+    const T = dist(MOUND, HOME) / pitchSpeed;
 
     // Strike / ball location — each pitch type has different accuracy
     const strikeRates = [0.68, 0.50, 0.60];
@@ -435,14 +438,14 @@ export class Game {
     this._curveAccel = -swerve / (0.9 * T * T);
 
     this.ball.x  = MOUND.x; this.ball.y = MOUND.y;
-    this.ball.vy = pitch.speed;
+    this.ball.vy = pitchSpeed;
     this.ball.vx = vx0;
     this.ball.active = true;
     this.ball.trail = [];
     this.ball.inArc = false;
     this.ball.height = 0;
 
-    this._pitchSpeed = pitch.speed;
+    this._pitchSpeed = pitchSpeed;
     this.swingZoneActive = false;
     this.pitcherAnim = 1;
     playPitch();
@@ -458,15 +461,15 @@ export class Game {
     const diff  = Math.abs(bally - HOME.y);
     const xDiff = Math.abs(this.ball.x - HOME.x);
 
-    // Power swing = 72% of normal window (harder to make contact, but better outcomes)
-    const wm = this.swingMode === 'power' ? 0.72 : 1.0;
+    // Power remains harder, but both modes are tuned for young players.
+    const wm = this.swingMode === 'power' ? 0.78 : 1.0;
 
     let quality, hitPower;
-    if (diff < 22 * wm && xDiff < 32 * wm) {
+    if (diff < 38 * wm && xDiff < 45 * wm) {
       quality = 'PERFECT'; hitPower = rand(0.75, 1.0);
-    } else if (diff < 55 * wm && xDiff < 52 * wm) {
-      quality = 'GOOD';    hitPower = rand(0.45, 0.78);
     } else if (diff < 90 * wm && xDiff < 72 * wm) {
+      quality = 'GOOD';    hitPower = rand(0.45, 0.78);
+    } else if (diff < 140 * wm && xDiff < 100 * wm) {
       quality = 'WEAK';    hitPower = rand(0.2, 0.48);
     } else {
       playSwingMiss();
@@ -479,8 +482,8 @@ export class Game {
     }
 
     // Hit direction — compute before foul check so ground spread can affect it
-    const earlyLate = (bally - HOME.y) / 20;
-    let hitAngle = Math.PI * 1.5 + (-earlyLate * 0.5) + rand(-0.35, 0.35);
+    const earlyLate = clamp((bally - HOME.y) / 90, -1, 1);
+    let hitAngle = Math.PI * 1.5 + (-earlyLate * 0.42) + rand(-0.28, 0.28);
 
     // Ground balls get more side-to-side variance before fair/foul is judged.
     if (quality === 'WEAK') {
@@ -1088,10 +1091,11 @@ export class Game {
         this.ball.vx += this._curveAccel * dt * 1.8;
 
         // Activate swing zone early so kids can see it and react
-        if (this.ball.y > HOME.y - 100) this.swingZoneActive = true;
+        if (this.ball.y > HOME.y - 140) this.swingZoneActive = true;
 
         // Ball passed plate — auto-evaluate for CPU hitter
-        if (this.ball.y > HOME.y + 20) {
+        const passedPlateLimit = this.topInning ? 20 : 90;
+        if (this.ball.y > HOME.y + passedPlateLimit) {
           if (this.topInning) {
             // CPU bats: auto swing
             this._cpuSwing();
