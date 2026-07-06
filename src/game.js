@@ -187,13 +187,15 @@ class Runner {
     this.y = BASE_POS[base].y;
     this.targetBase = base;
     this.running = false;
+    this.forceOut = false;
     this.out = false;
     this.scored = false;
     this._anim = 0;
   }
-  runTo(base) {
+  runTo(base, forceOut = false) {
     this.targetBase = clamp(base, 0, 3);
     this.running = true;
+    this.forceOut = forceOut;
   }
   update(dt) {
     if (this.out || this.scored) return;
@@ -208,6 +210,7 @@ class Runner {
         this.x = target.x; this.y = target.y;
         this.base = this.targetBase;
         this.running = false;
+        this.forceOut = false;
       } else {
         this.x += (dx / d) * spd * dt;
         this.y += (dy / d) * spd * dt;
@@ -266,8 +269,9 @@ export class Game {
     this.swingAnim = 0;  // 0-1
     this.swingDir  = 1;  // 1 = swinging
     this.pitcherAnim = 0;
-    this.swingMode = 'normal';  // 'normal' | 'power'
+    this.swingMode = null;  // human must choose 'normal' or 'power' before each pitch
     this._throwAnim = null;
+    this._runsScoredOnPlay = null;
   }
 
   _startHalfInning() {
@@ -298,6 +302,7 @@ export class Game {
   _setState(s) {
     this.state = s;
     this.stateTimer = 0;
+    if (s === S.PRE_PITCH && !this.topInning) this.swingMode = null;
   }
 
   // Current batter reference
@@ -593,8 +598,11 @@ export class Game {
 
     // Animate ball flying to the base
     const duration = Math.max(0.22, Math.min(throwTime, 0.75));
-    this._throwAnim = { fromX, fromY, toX: basePos.x, toY: basePos.y,
-                        progress: 0, duration, outRunner, targetBase };
+    this._throwAnim = {
+      fromX, fromY, toX: basePos.x, toY: basePos.y,
+      progress: 0, duration, outRunner, targetBase,
+      forceOut: Boolean(outRunner?.forceOut),
+    };
     this.ball.reset();
     this.ball.x = fromX; this.ball.y = fromY;
     this.ball.vx = 0; this.ball.vy = 0;
@@ -693,6 +701,7 @@ export class Game {
   _resolveHit() {
     const outcome = this._pendingOutcome;
     if (!outcome) return;
+    this._runsScoredOnPlay = null;
 
     if (outcome.type === 'out') {
       playOut();
@@ -704,13 +713,21 @@ export class Game {
     } else {
       // Advance runners first
       let runsScored = 0;
+      const occupiedBeforePlay = new Set(
+        this.runners
+          .filter(r => !r.out && !r.scored)
+          .map(r => r.base)
+      );
       this.runners.forEach(r => {
         const newBase = r.base + outcome.bases;
         if (newBase >= 4) {
           r.scored = true;
           runsScored++;
         } else {
-          r.runTo(newBase);
+          const isForced = outcome.bases === 1
+            && Array.from({ length: r.base }, (_, i) => i + 1)
+              .every(base => occupiedBeforePlay.has(base));
+          r.runTo(newBase, isForced);
         }
       });
       this.runners = this.runners.filter(r => !r.scored);
@@ -718,7 +735,7 @@ export class Game {
       // Place batter as new runner
       if (outcome.bases < 4) {
         const newRunner = new Runner(this._batter, 0);
-        newRunner.runTo(outcome.bases);
+        newRunner.runTo(outcome.bases, outcome.bases === 1);
         this.runners.push(newRunner);
       } else {
         runsScored++; // batter scores on HR
@@ -734,6 +751,13 @@ export class Game {
         this.score.cpu += runsScored;
         const inn = this.inning - 1;
         this.inningScores.cpu[inn] = (this.inningScores.cpu[inn] ?? 0) + runsScored;
+      }
+      if (runsScored > 0) {
+        this._runsScoredOnPlay = {
+          teamKey: this.topInning ? 'cpu' : 'player',
+          inning: this.inning - 1,
+          count: runsScored,
+        };
       }
       if (runsScored > 0 && outcome.type !== 'homer') playRun();
 
@@ -807,6 +831,15 @@ export class Game {
   _showMsg(text, color = '#fff', dur = 1.6) {
     this.msg = text; this.msgColor = color;
     this.msgAlpha = 1; this.msgTimer = dur;
+  }
+
+  _nullifyRunsOnPlay() {
+    const playRuns = this._runsScoredOnPlay;
+    if (!playRuns || playRuns.count <= 0) return false;
+    this.score[playRuns.teamKey] -= playRuns.count;
+    this.inningScores[playRuns.teamKey][playRuns.inning] -= playRuns.count;
+    this._runsScoredOnPlay = null;
+    return true;
   }
 
   _finishPlayResult() {
@@ -883,7 +916,7 @@ export class Game {
 
       case S.PRE_PITCH:
         // CPU pitches (player bats): pick random pitch type and fire
-        if (!this.topInning && this.stateTimer > 1.2) {
+        if (!this.topInning && this.swingMode && this.stateTimer > 0.7) {
           this.selectedPitchIdx = randInt(0, 2);
           this._beginPitch();
         }
@@ -1024,13 +1057,21 @@ export class Game {
             this.outs++;
             playSlide();
             playOut();
-            this._showMsg('OUT!', '#ff8f8f');
+            const noRun = this.outs >= OUTS_PER_INNING
+              && t.forceOut
+              && this._nullifyRunsOnPlay();
+            this._showMsg(
+              noRun ? 'FORCE OUT — NO RUN!' : 'OUT!',
+              '#ff8f8f',
+              noRun ? 2.2 : 1.6
+            );
             this.runners = this.runners.filter(r => !r.out);
             this._checkInning();
           } else {
             playSafe();
             this._showMsg('SAFE!', '#7fff7f');
           }
+          this._runsScoredOnPlay = null;
           this._throwAnim = null;
           if (this.state !== S.INNING_END) this._setState(S.PLAY_RESULT);
         }
@@ -1222,7 +1263,11 @@ export class Game {
           ctx.textBaseline = 'middle';
           ctx.fillStyle = '#aaa';
           ctx.font = '12px monospace';
-          ctx.fillText('CHOOSE YOUR SWING', W/2, CTRL_Y + 92);
+          ctx.fillText(
+            this.swingMode ? 'GET READY...' : 'CHOOSE A SWING — PITCH WAITS',
+            W/2,
+            CTRL_Y + 92
+          );
         }
         break;
 
@@ -1531,6 +1576,7 @@ export class Game {
       const bx = 10 + i * (bw + gap);
       if (p.x >= bx && p.x <= bx + bw && p.y >= y && p.y <= y + bh) {
         this.swingMode = mode;
+        this.stateTimer = 0;
       }
     });
   }
