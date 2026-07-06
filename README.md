@@ -15,7 +15,8 @@ Play the deployed game:
 - Sequential baserunning around every base on doubles and triples
 - One-tap fielding with automatic base targeting
 - Visible ball landing, fielder pursuit, base coverage, and relay throws
-- Random inning music, sound effects, and a separate home-screen theme
+- Eight gameplay themes that rotate randomly, sound effects, and a separate
+  home-screen theme
 
 ## Controls
 

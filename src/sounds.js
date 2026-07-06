@@ -250,6 +250,46 @@ const MUSIC_D = [
   [784,Q],[659,Q],[523,H],[0,DQ],
 ];
 
+// Song E — bright seventh-inning-stretch bounce
+const MUSIC_E = [
+  [523,Q],[659,E],[784,E],[880,Q],[784,Q],
+  [659,E],[587,E],[523,Q],[440,H],[0,E],
+  [440,Q],[523,E],[659,E],[784,Q],[659,Q],
+  [587,E],[523,E],[440,Q],[392,H],[0,E],
+  [659,E],[784,E],[880,E],[1047,E],[880,Q],[784,Q],
+  [659,E],[587,E],[523,Q],[659,H],[0,DQ],
+];
+
+// Song F — playful minor-key rally theme
+const MUSIC_F = [
+  [440,E],[523,E],[587,Q],[523,E],[440,E],
+  [392,Q],[440,Q],[330,H],[0,E],
+  [440,E],[523,E],[659,Q],[587,E],[523,E],
+  [440,Q],[392,Q],[330,H],[0,E],
+  [587,E],[659,E],[784,Q],[659,E],[587,E],
+  [523,Q],[440,E],[392,E],[440,H],[0,DQ],
+];
+
+// Song G — quick dugout-clap rhythm
+const MUSIC_G = [
+  [523,E],[523,E],[659,E],[523,E],[784,Q],[0,E],
+  [659,E],[659,E],[784,E],[659,E],[880,Q],[0,E],
+  [440,E],[523,E],[587,E],[659,E],[784,E],[659,E],
+  [587,Q],[523,Q],[440,H],[0,E],
+  [784,E],[880,E],[1047,E],[880,E],[784,Q],[659,Q],
+  [587,E],[523,E],[440,Q],[523,H],[0,DQ],
+];
+
+// Song H — relaxed sunset ballpark groove
+const MUSIC_H = [
+  [330,DQ],[392,E],[440,Q],[523,Q],
+  [440,H],[392,Q],[0,E],
+  [392,DQ],[440,E],[523,Q],[587,Q],
+  [523,H],[440,Q],[0,E],
+  [523,E],[587,E],[659,Q],[587,E],[523,E],
+  [440,Q],[392,Q],[330,H],[0,DQ],
+];
+
 // Calmer title-screen theme.
 const MUSIC_MENU = [
   [392,Q],[523,Q],[659,Q],[523,Q],
@@ -260,7 +300,20 @@ const MUSIC_MENU = [
   [523,Q],[440,Q],[392,H],[0,DQ],
 ];
 
-const SONGS = [MUSIC_A, MUSIC_B, MUSIC_C, MUSIC_D];
+const SONGS = [
+  MUSIC_A, MUSIC_B, MUSIC_C, MUSIC_D,
+  MUSIC_E, MUSIC_F, MUSIC_G, MUSIC_H,
+];
+
+function selectNextGameplaySong() {
+  let songIdx = Math.floor(Math.random() * SONGS.length);
+  if (SONGS.length > 1 && songIdx === lastSongIdx) {
+    songIdx = (songIdx + 1 + Math.floor(Math.random() * (SONGS.length - 1))) % SONGS.length;
+  }
+  lastSongIdx = songIdx;
+  currentSong = SONGS[songIdx];
+  noteIdx = 0;
+}
 
 function scheduleMusic() {
   if (!musicPlaying || !actx || !currentSong) return;
@@ -282,7 +335,11 @@ function scheduleMusic() {
       } catch {}
     }
     nextNoteAt += dur;
-    noteIdx = (noteIdx + 1) % currentSong.length;
+    noteIdx++;
+    if (noteIdx >= currentSong.length) {
+      if (currentInning === 'menu') noteIdx = 0;
+      else selectNextGameplaySong();
+    }
   }
   scheduleTimer = setTimeout(scheduleMusic, 40);
 }
@@ -293,18 +350,13 @@ export function startMusic(inning) {
   stopMusic();
   if (inning === 'menu') {
     currentSong = MUSIC_MENU;
+    noteIdx = 0;
   } else {
-    let songIdx = Math.floor(Math.random() * SONGS.length);
-    if (SONGS.length > 1 && songIdx === lastSongIdx) {
-      songIdx = (songIdx + 1 + Math.floor(Math.random() * (SONGS.length - 1))) % SONGS.length;
-    }
-    lastSongIdx = songIdx;
-    currentSong = SONGS[songIdx];
+    selectNextGameplaySong();
   }
   currentInning = inning;
   ac();
   musicPlaying = true;
-  noteIdx = 0;
   nextNoteAt = actx.currentTime + 0.08;
   scheduleMusic();
 }
