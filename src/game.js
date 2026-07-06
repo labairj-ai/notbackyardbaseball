@@ -1674,11 +1674,12 @@ export class Game {
       : `BOTTOM ${this.inning} OVER`;
 
     drawCenterMessage(ctx, [
+      { text: 'THREE OUTS!',                 size: 24, color: '#ff8f8f', gap: 38 },
       { text: label,                      size: 28, color: '#FFD700', gap: 42 },
       { text: `${this.playerTeam.name}`,  size: 16, color: this.playerTeam.primary, gap: 36 },
       { text: `${this.score.player}  —  ${this.score.cpu}`, size: 32, color: '#fff', gap: 42 },
       { text: `${this.cpuTeam.name}`,     size: 16, color: this.cpuTeam.primary, gap: 36 },
-    ], H/2 - 60);
+    ], H/2 - 100);
   }
 
   _drawGameOver(ctx) {
