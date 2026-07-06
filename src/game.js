@@ -645,9 +645,18 @@ export class Game {
   }
 
   _calcHitOutcome(quality, power, swingMode = 'normal') {
+    const mk = (type, bases, label, color) => ({ type, bases, label, color });
+
+    // Weak contact is a ground ball: nearly always an out, occasionally a single.
+    // Swing mode does not turn a weak grounder into an extra-base hit.
+    if (quality === 'WEAK') {
+      return Math.random() < 0.90
+        ? mk('out', 0, 'GROUNDOUT', '#ff8f8f')
+        : mk('single', 1, 'INFIELD SINGLE!', '#7fff7f');
+    }
+
     const luck = (this._batter.luck ?? 5) / 10;
     const roll = Math.random() * 0.22 + power * 0.78 + luck * 0.12;
-    const mk = (type, bases, label, color) => ({ type, bases, label, color });
 
     if (swingMode === 'power') {
       // Power swing: more extra-base hits, less likely to get singles
@@ -662,7 +671,7 @@ export class Game {
       if (roll > 0.63) return mk('double', 2, 'DOUBLE!',      '#4cc9f0');
       if (roll > 0.20) return mk('single', 1, 'SINGLE!',      '#7fff7f');
     }
-    return mk('out', 0, quality === 'WEAK' ? 'GROUNDOUT' : 'FLYOUT!', '#ff8f8f');
+    return mk('out', 0, 'FLYOUT!', '#ff8f8f');
   }
 
   _startFielderChase() {
