@@ -19,7 +19,9 @@ import {
 } from './sounds.js';
 
 // ── Build info ────────────────────────────────────────────────────────────────
-const BUILD_STAMP = __BUILD_TIME__;
+const BUILD_STAMP = typeof __BUILD_TIME__ === 'undefined'
+  ? new Date(0).toISOString()
+  : __BUILD_TIME__;
 function buildLabel() {
   try {
     const d = new Date(BUILD_STAMP);
@@ -271,6 +273,12 @@ export class Game {
   _startHalfInning() {
     this.outs = 0; this.strikes = 0; this.balls = 0;
     this.runners = [];
+    const battingScores = this.topInning
+      ? this.inningScores.cpu
+      : this.inningScores.player;
+    if (battingScores[this.inning - 1] === null) {
+      battingScores[this.inning - 1] = 0;
+    }
     this._spawnFielders();
     startMusic(this.inning);
     this._setState(S.PRE_PITCH);
@@ -411,10 +419,7 @@ export class Game {
     playSwing();
     playHit(quality);
 
-    const maxSpeed = 420 + this._batter.power * 20;
-    const speed = hitPower * maxSpeed;
-
-    this._pendingOutcome = this._calcHitOutcome(quality, hitPower, speed);
+    this._pendingOutcome = this._calcHitOutcome(quality, hitPower, this.swingMode);
     this._launchArc(hitAngle, hitPower);
     this._setState(S.HIT_ANIM);
     this._startFielderChase();
@@ -616,12 +621,12 @@ export class Game {
     this._setState(S.PLAY_RESULT);
   }
 
-  _calcHitOutcome(quality, power, speed) {
+  _calcHitOutcome(quality, power, swingMode = 'normal') {
     const luck = (this._batter.luck ?? 5) / 10;
     const roll = Math.random() * 0.22 + power * 0.78 + luck * 0.12;
     const mk = (type, bases, label, color) => ({ type, bases, label, color });
 
-    if (this.swingMode === 'power') {
+    if (swingMode === 'power') {
       // Power swing: more extra-base hits, less likely to get singles
       if (roll > 0.88) return mk('homer',  4, 'HOME RUN!!',   '#FFD700');
       if (roll > 0.73) return mk('triple', 3, 'TRIPLE!!',     '#f4a261');
@@ -718,10 +723,38 @@ export class Game {
     } else if (this.balls >= BALLS_PER_WALK) {
       playWalk();
       this._showMsg('WALK!', '#4cc9f0');
-      // Advance runner from walk
+
+      // Force occupied runners only when every base behind them is occupied.
+      const occupied = new Map();
+      this.runners.forEach(r => {
+        if (!r.out && !r.scored) occupied.set(r.targetBase, r);
+      });
+      let runsScored = 0;
+      for (let base = 3; base >= 1; base--) {
+        const isForced = Array.from({ length: base }, (_, i) => i + 1)
+          .every(b => occupied.has(b));
+        if (!isForced) continue;
+        const runner = occupied.get(base);
+        if (base === 3) {
+          runner.scored = true;
+          runsScored++;
+        } else {
+          runner.runTo(base + 1);
+        }
+      }
+      this.runners = this.runners.filter(r => !r.scored);
+
       const newRunner = new Runner(this._batter, 0);
       newRunner.runTo(1);
       this.runners.push(newRunner);
+
+      if (runsScored > 0) {
+        const teamKey = this.topInning ? 'cpu' : 'player';
+        this.score[teamKey] += runsScored;
+        const inn = this.inning - 1;
+        this.inningScores[teamKey][inn] += runsScored;
+        playRun();
+      }
       this._advanceBatterIdx();
       this._resetCount();
     }
@@ -744,26 +777,34 @@ export class Game {
     this.msgAlpha = 1; this.msgTimer = dur;
   }
 
+  _finishPlayResult() {
+    this.fielders.forEach(f => {
+      f.hasBall = false;
+      f.returnHome();
+    });
+    this.ball.reset();
+    this.ball.x = MOUND.x;
+    this.ball.y = MOUND.y;
+    this._setState(this.outs >= OUTS_PER_INNING ? S.INNING_END : S.PRE_PITCH);
+  }
+
   // CPU auto-swing logic
   _cpuSwing() {
-    const bally = this.ball.y;
-    const ballx = this.ball.x;
-    const diff   = Math.abs(bally - HOME.y);
-    const xDiff  = Math.abs(ballx - HOME.x);
+    const xDiff  = Math.abs(this.ball.x - HOME.x);
     const cpuEye = this._batter.eye / 10;
+    const isStrike = xDiff < 22;
 
-    // CPU swings if ball is near plate, biased by eye stat
-    if (diff < 30 && xDiff < 30 && Math.random() < cpuEye * 1.1) {
+    // Decide once as the pitch crosses the plate. Every take records a call.
+    if (xDiff < 32 && Math.random() < cpuEye * 1.1) {
       this.swingAnim = 1;
       playSwing();
       const hitRoll = Math.random();
       if (hitRoll < cpuEye * 0.8) {
         const power = rand(0.25, 0.85);
         const angle = Math.PI * 1.5 + rand(-0.5, 0.5);
-        const speed = power * (380 + this._batter.power * 18);
         const quality = power > 0.6 ? 'PERFECT' : power > 0.4 ? 'GOOD' : 'WEAK';
         playHit(quality);
-        this._pendingOutcome = this._calcHitOutcome(quality, power, speed);
+        this._pendingOutcome = this._calcHitOutcome(quality, power, 'normal');
         this._launchArc(angle, power);
         this._setState(S.HIT_ANIM);
         this._startFielderChase();
@@ -774,19 +815,16 @@ export class Game {
         this._showMsg('STRIKE!', '#FFD700');
         this._checkCount();
       }
-    } else if (diff > 40 || xDiff > 30) {
-      // CPU takes the pitch
-      const isBall = diff > 38 || xDiff > 28;
-      if (isBall) {
-        playBall();
-        this.balls++;
-        this._checkCount();
-      } else {
-        playStrike();
-        this.strikes++;
-        this._showMsg('CALLED STRIKE', '#FFD700');
-        this._checkCount();
-      }
+    } else if (isStrike) {
+      playStrike();
+      this.strikes++;
+      this._showMsg('CALLED STRIKE', '#FFD700');
+      this._checkCount();
+    } else {
+      playBall();
+      this.balls++;
+      this._showMsg('BALL', '#4cc9f0');
+      this._checkCount();
     }
   }
 
@@ -973,15 +1011,7 @@ export class Game {
 
       case S.PLAY_RESULT:
         if (this.stateTimer > 2.2) {
-          // Clear fielder hasBall, return home
-          this.fielders.forEach(f => { f.hasBall = false; f.returnHome(); });
-          this.ball.reset();
-          this.ball.x = MOUND.x; this.ball.y = MOUND.y;
-          if (this.outs >= OUTS_PER_INNING) {
-            this._setState(S.INNING_END);
-          } else {
-            this._setState(S.PRE_PITCH);
-          }
+          this._finishPlayResult();
         }
         break;
 
@@ -1065,7 +1095,7 @@ export class Game {
 
     // Batter info (only when player is batting — avoids overlap with pitch buttons)
     if (!this.topInning && this.state === S.PITCHING) {
-      drawBatterInfo(ctx, this._batter, batTeam.primary);
+      drawBatterInfo(ctx, this._batter, this.playerTeam.primary);
     }
 
     // Messages
@@ -1423,6 +1453,9 @@ export class Game {
       }
 
       case S.PLAY_RESULT:
+        if (this.stateTimer > 0.25) this._finishPlayResult();
+        break;
+
       case S.INNING_END:
         break;
     }

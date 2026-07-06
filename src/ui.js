@@ -260,7 +260,10 @@ export function drawThrowDecision(ctx, gs) {
   ctx.fillRect(20, CTRL_Y + 4, (W - 40) * pct, 5);
 
   THROW_POSITIONS.forEach((pos, i) => {
-    const hasRunner = gs.runners.some(r => !r.out && !r.scored && r.targetBase === i);
+    const targetBase = [1, 2, 3, 0][i];
+    const hasRunner = gs.runners.some(r =>
+      !r.out && !r.scored && r.targetBase === targetBase
+    );
 
     if (hasRunner) {
       ctx.shadowColor = '#FFD700';

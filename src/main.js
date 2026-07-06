@@ -24,10 +24,14 @@ window.addEventListener('resize', resize);
 // ── Input helpers ─────────────────────────────────────────────────────────────
 function toGame(e) {
   const r  = canvas.getBoundingClientRect();
-  const sx = W / r.width;
-  const sy = H / r.height;
   const src = e.touches ? (e.touches[0] ?? e.changedTouches[0]) : e;
-  return { x: (src.clientX - r.left) * sx, y: (src.clientY - r.top) * sy };
+  const scale = Math.min(r.width / W, r.height / H);
+  const offsetX = (r.width - W * scale) / 2;
+  const offsetY = (r.height - H * scale) / 2;
+  return {
+    x: (src.clientX - r.left - offsetX) / scale,
+    y: (src.clientY - r.top - offsetY) / scale,
+  };
 }
 
 canvas.addEventListener('touchstart', e => { e.preventDefault(); game.pointerDown(toGame(e)); }, { passive: false });
