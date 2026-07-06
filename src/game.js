@@ -47,6 +47,7 @@ function runnerSpeed(player) {
 const BASE_POS = [HOME, FIRST, SECOND, THIRD];
 const PERSPECTIVE = 0.28;  // height → upward screen-offset ratio
 const ARC_GRAVITY = 360;   // px/s²
+const INFIELD_ROLES = new Set(['P', '1B', '2B', 'SS', '3B']);
 
 function remainingRunnerDistance(runner, targetBase) {
   if (!runner.running || runner.nextBase > targetBase) {
@@ -576,7 +577,7 @@ export class Game {
     const activeFielder = this.activeFielderIdx >= 0
       ? this.fielders[this.activeFielderIdx]
       : null;
-    if (this._groundBallPlay || activeFielder?.role === 'SS') return 1;
+    if (this._groundBallPlay || INFIELD_ROLES.has(activeFielder?.role)) return 1;
 
     const fielder = activeFielder;
     const fromX = fielder ? fielder.x : MOUND.x;
@@ -1035,6 +1036,21 @@ export class Game {
             playCatch();
           }
           this._sendFieldersToCoverBases();
+          const fieldingRole = this.activeFielderIdx >= 0
+            ? this.fielders[this.activeFielderIdx].role
+            : null;
+          if (
+            this.topInning
+            && INFIELD_ROLES.has(fieldingRole)
+            && this._pendingOutcome?.type !== 'homer'
+          ) {
+            this._groundBallPlay = true;
+            this._pendingOutcome = {
+              type: 'single', bases: 1,
+              label: 'GROUND BALL!', color: '#f4a261',
+            };
+          }
+
           const preOutcome  = this._pendingOutcome;
           const homerBatter = preOutcome?.type === 'homer' ? this._batter : null;
           const homerTeam   = preOutcome?.type === 'homer'
