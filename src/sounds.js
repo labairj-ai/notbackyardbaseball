@@ -195,6 +195,7 @@ let nextNoteAt = 0;
 let currentSong = null;
 let currentInning = null;
 let lastSongIdx = -1;
+let nextSongChangeAt = Infinity;
 
 const BT = 60 / 136;        // beat duration at 136bpm
 const E  = BT / 2;
@@ -336,9 +337,11 @@ function scheduleMusic() {
     }
     nextNoteAt += dur;
     noteIdx++;
-    if (noteIdx >= currentSong.length) {
-      if (currentInning === 'menu') noteIdx = 0;
-      else selectNextGameplaySong();
+    if (noteIdx >= currentSong.length) noteIdx = 0;
+    if (currentInning !== 'menu' && nextNoteAt >= nextSongChangeAt) {
+      selectNextGameplaySong();
+      // Frequent rotation keeps the short game soundtrack varied.
+      nextSongChangeAt = nextNoteAt + 8 + Math.random() * 4;
     }
   }
   scheduleTimer = setTimeout(scheduleMusic, 40);
@@ -358,6 +361,9 @@ export function startMusic(inning) {
   ac();
   musicPlaying = true;
   nextNoteAt = actx.currentTime + 0.08;
+  nextSongChangeAt = inning === 'menu'
+    ? Infinity
+    : actx.currentTime + 8 + Math.random() * 4;
   scheduleMusic();
 }
 
@@ -365,4 +371,5 @@ export function stopMusic() {
   musicPlaying = false;
   if (scheduleTimer) clearTimeout(scheduleTimer);
   scheduleTimer = null;
+  nextSongChangeAt = Infinity;
 }
