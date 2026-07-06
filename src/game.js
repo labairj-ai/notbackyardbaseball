@@ -4,7 +4,7 @@ import {
   STRIKES_PER_OUT, BALLS_PER_WALK, THROW_DECISION_TIME, CTRL_Y, HUD_H,
 } from './constants.js';
 import { drawField, highlightBase } from './field.js';
-import { drawKid, PLAYER_TEAM, CPU_TEAM } from './characters.js';
+import { drawKid, PLAYER_TEAM, CPU_TEAM, createRandomTeams } from './characters.js';
 import {
   drawScoreboard, drawControlsBg, drawSwingButton, drawSwingModeButtons,
   drawPitchButtons, drawPitchButton, drawThrowDecision,
@@ -317,6 +317,10 @@ export class Game {
 
   // ── Init / Reset ────────────────────────────────────────────────────────────
   _resetGame() {
+    const teams = createRandomTeams();
+    this.playerTeam = teams.playerTeam;
+    this.cpuTeam = teams.cpuTeam;
+
     this.state = S.MENU;
     this.inning = 1;
     this.topInning = true; // true = CPU bats (top), false = player bats (bottom)
@@ -1614,7 +1618,7 @@ export class Game {
     ctx.fillText('BASEBALL', W/2, 140);
 
     // Teams preview
-    [PLAYER_TEAM, CPU_TEAM].forEach((team, i) => {
+    [this.playerTeam, this.cpuTeam].forEach((team, i) => {
       const ty = 220 + i * 52;
       ctx.fillStyle = 'rgba(0,0,0,0.45)';
       ctx.beginPath();

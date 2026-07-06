@@ -9,8 +9,8 @@ Play the deployed game:
 ## Gameplay
 
 - Three-inning games between the Backyard Bombers and Rival Rascals
-- Five distinct creature players on the human-controlled team, with unique
-  silhouettes, colors, and balanced Power/Speed archetypes
+- Shared pool of whimsical creature players randomly assigned to both teams at
+  the start of each game
 - Player pitching with fastball, curveball, and change-up choices
 - Normal and power swings with different contact and extra-base-hit tradeoffs
 - Player-specific Power and Speed ratings using balanced stat budgets
