@@ -1,4 +1,4 @@
-import { W, H, HUD_H, CTRL_Y, INNINGS, PITCHES } from './constants.js';
+import { W, H, HUD_H, CTRL_Y, INNINGS, PITCHES, THROW_POSITIONS } from './constants.js';
 
 // ── Scoreboard ────────────────────────────────────────────────────────────────
 export function drawScoreboard(ctx, gs) {
@@ -191,34 +191,128 @@ export function drawPitchButton(ctx) {
   ctx.fillText('PITCH!', W/2, by + bh/2);
 }
 
+const THROW_LABELS = ['1B', '2B', '3B', 'HOME'];
+const THROW_COLORS = ['#f4a261', '#4cc9f0', '#a8dadc', '#e63946'];
+const THROW_R = 30;
+
 // Throw buttons shown when fielder has ball (player fielding)
 export function drawThrowButtons(ctx) {
-  const labels  = ['1B', '2B', '3B', 'HOME'];
-  const colors  = ['#f4a261', '#4cc9f0', '#a8dadc', '#e63946'];
-  const r = 30;
-  // Position buttons near their respective bases
-  const positions = [
-    { x: W - 55, y: CTRL_Y + 55  },  // 1B → right
-    { x: W/2,    y: CTRL_Y + 30  },  // 2B → center top
-    { x: 55,     y: CTRL_Y + 55  },  // 3B → left
-    { x: W/2,    y: CTRL_Y + 112 },  // HOME → center bottom
-  ];
-
-  positions.forEach((pos, i) => {
+  THROW_POSITIONS.forEach((pos, i) => {
     ctx.beginPath();
-    ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = colors[i];
+    ctx.arc(pos.x, pos.y, THROW_R, 0, Math.PI * 2);
+    ctx.fillStyle = THROW_COLORS[i];
     ctx.fill();
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+    ctx.arc(pos.x, pos.y, THROW_R, 0, Math.PI * 2);
     ctx.stroke();
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 13px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(labels[i], pos.x, pos.y);
+    ctx.fillText(THROW_LABELS[i], pos.x, pos.y);
+  });
+}
+
+// Throw decision overlay (player fielding — choose where to throw after CPU hit)
+export function drawThrowDecision(ctx, gs) {
+  const timeLeft = Math.max(0, 2.8 - gs.stateTimer);
+  const pct = timeLeft / 2.8;
+
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 13px monospace';
+  ctx.fillStyle = '#FFD700';
+  ctx.fillText('THROW TO:', W / 2, CTRL_Y + 15);
+
+  // Countdown bar
+  ctx.fillStyle = 'rgba(255,255,255,0.1)';
+  ctx.fillRect(20, CTRL_Y + 4, W - 40, 5);
+  ctx.fillStyle = pct > 0.4 ? '#4cc9f0' : '#e63946';
+  ctx.fillRect(20, CTRL_Y + 4, (W - 40) * pct, 5);
+
+  THROW_POSITIONS.forEach((pos, i) => {
+    const hasRunner = gs.runners.some(r => !r.out && !r.scored && r.targetBase === i);
+
+    if (hasRunner) {
+      ctx.shadowColor = '#FFD700';
+      ctx.shadowBlur = 14;
+    }
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, THROW_R, 0, Math.PI * 2);
+    ctx.fillStyle = hasRunner ? THROW_COLORS[i] : `${THROW_COLORS[i]}66`;
+    ctx.fill();
+    ctx.strokeStyle = hasRunner ? '#FFD700' : 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = hasRunner ? 2.5 : 1.5;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, THROW_R, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = hasRunner ? '#fff' : 'rgba(255,255,255,0.45)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `bold ${hasRunner ? 14 : 12}px monospace`;
+    ctx.fillText(THROW_LABELS[i], pos.x, pos.y - (hasRunner ? 4 : 0));
+    if (hasRunner) {
+      ctx.font = '10px monospace';
+      ctx.fillStyle = '#FFD700';
+      ctx.fillText('RUN!', pos.x, pos.y + 12);
+    }
+  });
+}
+
+// Runner advance panel (player batting — choose to send runners after hit)
+export function drawRunnerAdvance(ctx, gs) {
+  const timeLeft = Math.max(0, 2.8 - gs.stateTimer);
+  const pct = timeLeft / 2.8;
+
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 13px monospace';
+  ctx.fillStyle = '#7fff7f';
+  ctx.fillText('ADVANCE RUNNERS?', W / 2, CTRL_Y + 15);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.1)';
+  ctx.fillRect(20, CTRL_Y + 4, W - 40, 5);
+  ctx.fillStyle = pct > 0.4 ? '#7fff7f' : '#f4a261';
+  ctx.fillRect(20, CTRL_Y + 4, (W - 40) * pct, 5);
+
+  const BASE_NAMES = ['HOME', '1ST', '2ND', '3RD'];
+  const active = gs.runners.filter(r => !r.out && !r.scored);
+
+  if (active.length === 0) {
+    ctx.fillStyle = '#666';
+    ctx.font = '13px monospace';
+    ctx.fillText('NO RUNNERS', W / 2, CTRL_Y + 80);
+    return;
+  }
+
+  active.forEach((runner, i) => {
+    if (i > 2) return; // max 3 rows in panel
+    const ry = CTRL_Y + 30 + i * 44;
+    const nb = runner.targetBase + 1;
+    const nextLabel = nb >= 4 ? 'SCORE!' : `→ ${BASE_NAMES[nb]}`;
+
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 11px monospace';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(runner.player.name, 16, ry + 8);
+    ctx.font = '10px monospace';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText(`on ${BASE_NAMES[runner.targetBase]}`, 16, ry + 22);
+
+    // Advance button
+    const bx = W - 118, by = ry - 2, bw = 100, bh = 36;
+    ctx.fillStyle = nb >= 4 ? '#1d6e2e' : '#1a3a6b';
+    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 10); ctx.fill();
+    ctx.strokeStyle = nb >= 4 ? '#5ec97a' : '#4cc9f0';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 10); ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText(nextLabel, bx + bw / 2, by + bh / 2);
   });
 }
 

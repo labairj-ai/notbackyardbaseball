@@ -1,18 +1,20 @@
 import {
   W, H, HOME, FIRST, SECOND, THIRD, MOUND, FX, FY, FENCE_R,
   FIELDER_HOMES, S, PITCHES, INNINGS, OUTS_PER_INNING,
-  STRIKES_PER_OUT, BALLS_PER_WALK, CTRL_Y, HUD_H,
+  STRIKES_PER_OUT, BALLS_PER_WALK, CTRL_Y, HUD_H, THROW_POSITIONS,
 } from './constants.js';
 import { drawField, highlightBase } from './field.js';
 import { drawKid, PLAYER_TEAM, CPU_TEAM } from './characters.js';
 import {
   drawScoreboard, drawControlsBg, drawSwingButton, drawPitchButtons,
-  drawPitchButton, drawThrowButtons, drawMessage, drawCenterMessage,
-  drawBatterInfo, drawStrikeZone, drawTapToContinue,
+  drawPitchButton, drawThrowButtons, drawThrowDecision, drawRunnerAdvance,
+  drawMessage, drawCenterMessage, drawBatterInfo, drawStrikeZone, drawTapToContinue,
 } from './ui.js';
 import {
   playPitch, playSwing, playHit, playStrike, playBall,
   playOut, playRun, playHomeRun, playFoul, playWalk,
+  playThrow, playCatch, playSafe, playSlide, playInningBell, playGameFinale,
+  startMusic, stopMusic,
 } from './sounds.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -274,22 +276,44 @@ export class Game {
 
   _beginPitch() {
     const pitch = PITCHES[this.selectedPitchIdx];
-    // Travel from mound to home plate
-    const totalDist = dist(MOUND, HOME);
-    const travelTime = totalDist / pitch.speed;
+    const T = dist(MOUND, HOME) / pitch.speed;
 
-    // Calculate ideal velocity
+    // Strike / ball location — each pitch type has different accuracy
+    const strikeRates = [0.68, 0.50, 0.60];
+    const isStrike = Math.random() < strikeRates[this.selectedPitchIdx];
+
+    let targetX;
+    if (isStrike) {
+      targetX = HOME.x + rand(-14, 14);
+    } else {
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const maxOff = [26, 36, 30][this.selectedPitchIdx];
+      targetX = HOME.x + side * rand(18, maxOff);
+    }
+
+    // Curveball / change-up: ball initially swerves in the opposite direction then breaks
+    // toward targetX — creates the late-break visual. Fastball is straight.
+    const swerveMax = [0, rand(18, 28), rand(7, 14)][this.selectedPitchIdx];
+    const swerveDir = Math.random() < 0.5 ? 1 : -1;
+    const swerve = swerveMax * swerveDir;
+
+    // vx0 sends ball (targetX + swerve) initially; _curveAccel corrects back to targetX
+    // x(T) = MOUND.x + vx0*T + 0.9*_curveAccel*T²  →  set to targetX
+    const xDisp = targetX - MOUND.x;
+    const vx0 = (xDisp + swerve) / T;
+    this._curveAccel = -swerve / (0.9 * T * T);
+
     this.ball.x  = MOUND.x; this.ball.y = MOUND.y;
     this.ball.vy = pitch.speed;
-    this.ball.vx = 0;
+    this.ball.vx = vx0;
     this.ball.active = true;
     this.ball.trail = [];
+    this.ball.inArc = false;
+    this.ball.height = 0;
 
-    // Curve adds horizontal drift over time — handled in update via _curveAccel
-    this._curveAccel = pitch.curve * (Math.random() < 0.5 ? 1 : -1) * 1.5;
     this._pitchSpeed = pitch.speed;
     this.swingZoneActive = false;
-    this.pitcherAnim = 1; // trigger wind-up
+    this.pitcherAnim = 1;
     playPitch();
     this._setState(S.PITCHING);
   }
@@ -381,6 +405,85 @@ export class Game {
     this.ball.trail  = [];
     this.ball.landX  = lx;
     this.ball.landY  = ly;
+  }
+
+  _handleThrow(baseIdx) {
+    if (this.state !== S.THROW_DECISION) return;
+    const basePos = [HOME, FIRST, SECOND, THIRD][baseIdx];
+    const fielder  = this.activeFielderIdx >= 0 ? this.fielders[this.activeFielderIdx] : null;
+    const throwDist = fielder ? Math.hypot(fielder.x - basePos.x, fielder.y - basePos.y) : 450;
+    const throwTime = throwDist / 340; // throw speed px/s
+
+    let gotOut = false;
+    this.runners.forEach(r => {
+      if (r.out || r.scored) return;
+      if (r.targetBase === baseIdx) {
+        const runDist  = Math.hypot(r.x - basePos.x, r.y - basePos.y);
+        const runSpeed = (r.player.speed / 9) * 145 + 50;
+        const runTime  = runDist / runSpeed;
+        if (throwTime < runTime && runDist > 8) {
+          r.out = true;
+          gotOut = true;
+        }
+      }
+    });
+
+    playThrow();
+    if (gotOut) {
+      setTimeout(() => playSlide(), 220);
+      playOut();
+      this.outs++;
+      this._showMsg('OUT!', '#ff8f8f');
+      this.runners = this.runners.filter(r => !r.out);
+      this._checkInning();
+      if (this.state === S.INNING_END) return;
+    } else {
+      playSafe();
+      this._showMsg('SAFE!', '#7fff7f');
+    }
+    this._setState(S.PLAY_RESULT);
+  }
+
+  _handleRunnerAdvance(runnerIdx) {
+    if (this.state !== S.RUNNER_ADVANCE) return;
+    const runner = this.runners[runnerIdx];
+    if (!runner || runner.out || runner.scored) return;
+
+    const nextBase = runner.targetBase + 1;
+    const fielder  = this.activeFielderIdx >= 0 ? this.fielders[this.activeFielderIdx] : null;
+
+    if (nextBase >= 4) {
+      // Try to score — check if fielder can nail them at home
+      let thrownOut = false;
+      if (fielder) {
+        const throwDist = Math.hypot(fielder.x - HOME.x, fielder.y - HOME.y);
+        const runDist   = Math.hypot(runner.x - HOME.x, runner.y - HOME.y);
+        const runSpeed  = (runner.player.speed / 9) * 145 + 50;
+        if ((throwDist / 340) < (runDist / runSpeed) - 0.2) thrownOut = true;
+      }
+      if (thrownOut) {
+        runner.out = true;
+        playOut();
+        setTimeout(() => playSlide(), 200);
+        this.outs++;
+        this._showMsg('OUT AT HOME!', '#ff8f8f');
+        this.runners = this.runners.filter(r => !r.out);
+        this._checkInning();
+        if (this.state === S.INNING_END) return;
+      } else {
+        runner.scored = true;
+        this.score.player++;
+        const inn = this.inning - 1;
+        this.inningScores.player[inn] = (this.inningScores.player[inn] ?? 0) + 1;
+        playRun();
+        this._showMsg('+1 RUN!', '#FFD700');
+        this.runners = this.runners.filter(r => !r.scored);
+      }
+    } else {
+      runner.runTo(nextBase);
+      this._showMsg('SEND IT!', '#4cc9f0');
+    }
+    this._setState(S.PLAY_RESULT);
   }
 
   _calcHitOutcome(quality, power, speed) {
@@ -570,8 +673,9 @@ export class Game {
         break;
 
       case S.PRE_PITCH:
-        // Only auto-pitch when CPU is pitching (player bats)
+        // CPU pitches (player bats): pick random pitch type and fire
         if (!this.topInning && this.stateTimer > 1.2) {
+          this.selectedPitchIdx = randInt(0, 2);
           this._beginPitch();
         }
         // When topInning=true, player pitches — wait for PITCH button tap
@@ -617,18 +721,37 @@ export class Game {
       }
 
       case S.HIT_ANIM: {
-        // Resolve when ball lands (arc ends) or timeout
         const ballLanded = !this.ball.active && !this.ball.inArc && this.stateTimer > 0.15;
         if (ballLanded || this.stateTimer > 3.8) {
           this.ball.active = false;
           if (this.activeFielderIdx >= 0) {
             this.fielders[this.activeFielderIdx].hasBall = true;
+            playCatch();
           }
+          const preOutcome = this._pendingOutcome;
           this._resolveHit();
-          if (this.state !== S.INNING_END) this._setState(S.PLAY_RESULT);
+          if (this.state === S.INNING_END) break;
+
+          // Player fielding + runners after a hit → throw decision
+          if (this.topInning && preOutcome && preOutcome.type !== 'out' && this.runners.length > 0) {
+            this._setState(S.THROW_DECISION);
+          // Player batting + hit → runner advance option
+          } else if (!this.topInning && preOutcome && preOutcome.type !== 'out') {
+            this._setState(S.RUNNER_ADVANCE);
+          } else {
+            this._setState(S.PLAY_RESULT);
+          }
         }
         break;
       }
+
+      case S.THROW_DECISION:
+        if (this.stateTimer > 2.8) this._setState(S.PLAY_RESULT);
+        break;
+
+      case S.RUNNER_ADVANCE:
+        if (this.stateTimer > 2.8) this._setState(S.PLAY_RESULT);
+        break;
 
       case S.PLAY_RESULT:
         if (this.stateTimer > 2.2) {
@@ -646,21 +769,23 @@ export class Game {
 
       case S.INNING_END:
         if (this.stateTimer > 2.8) {
-          // Switch sides
           this.topInning = !this.topInning;
           if (!this.topInning && this.inning > INNINGS) {
-            // Bottom of extra inning after last — game over
+            playGameFinale(this.score.player >= this.score.cpu);
+            stopMusic();
             this._setState(S.GAME_OVER);
           } else if (this.topInning) {
-            // Moving to next inning's top
             this.inning++;
             if (this.inning > INNINGS) {
-              // Was bottom of last inning
+              playGameFinale(this.score.player >= this.score.cpu);
+              stopMusic();
               this._setState(S.GAME_OVER);
             } else {
+              playInningBell();
               this._startHalfInning();
             }
           } else {
+            playInningBell();
             this._startHalfInning();
           }
         }
@@ -771,6 +896,14 @@ export class Game {
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 16px monospace';
         ctx.fillText('⚾', W/2, CTRL_Y + 72);
+        break;
+
+      case S.THROW_DECISION:
+        drawThrowDecision(ctx, this);
+        break;
+
+      case S.RUNNER_ADVANCE:
+        drawRunnerAdvance(ctx, this);
         break;
 
       case S.PLAY_RESULT:
@@ -946,10 +1079,12 @@ export class Game {
   pointerDown(p) {
     switch (this.state) {
       case S.MENU:
+        startMusic();
         this._startHalfInning();
         break;
 
       case S.GAME_OVER:
+        startMusic();
         this._resetGame();
         this._startHalfInning();
         break;
@@ -974,9 +1109,29 @@ export class Game {
         }
         break;
 
+      case S.THROW_DECISION: {
+        const tr = 38; // hit radius for throw buttons
+        THROW_POSITIONS.forEach((pos, i) => {
+          if (Math.hypot(p.x - pos.x, p.y - pos.y) < tr) this._handleThrow(i);
+        });
+        break;
+      }
+
+      case S.RUNNER_ADVANCE: {
+        const active = this.runners.filter(r => !r.out && !r.scored);
+        active.forEach((runner, i) => {
+          if (i > 2) return;
+          const ry = CTRL_Y + 30 + i * 44;
+          const bx = W - 118, by = ry - 2, bw = 100, bh = 36;
+          if (p.x >= bx && p.x <= bx + bw && p.y >= by && p.y <= by + bh) {
+            this._handleRunnerAdvance(this.runners.indexOf(runner));
+          }
+        });
+        break;
+      }
+
       case S.PLAY_RESULT:
       case S.INNING_END:
-        // tap to advance (handled in update timer, but allow early skip)
         break;
     }
   }

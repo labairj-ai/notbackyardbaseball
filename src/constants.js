@@ -38,14 +38,24 @@ export const BALLS_PER_WALK   = 4;
 
 // States
 export const S = {
-  MENU:         'menu',
-  PRE_PITCH:    'pre_pitch',
-  PITCHING:     'pitching',
-  HIT_ANIM:     'hit_anim',
-  PLAY_RESULT:  'play_result',
-  INNING_END:   'inning_end',
-  GAME_OVER:    'game_over',
+  MENU:           'menu',
+  PRE_PITCH:      'pre_pitch',
+  PITCHING:       'pitching',
+  HIT_ANIM:       'hit_anim',
+  THROW_DECISION: 'throw_decision',
+  RUNNER_ADVANCE: 'runner_advance',
+  PLAY_RESULT:    'play_result',
+  INNING_END:     'inning_end',
+  GAME_OVER:      'game_over',
 };
+
+// Throw button positions (diamond layout in controls area)
+export const THROW_POSITIONS = [
+  { x: W - 58, y: CTRL_Y + 58  },  // 1B → right
+  { x: W / 2,  y: CTRL_Y + 28  },  // 2B → top center
+  { x: 58,     y: CTRL_Y + 58  },  // 3B → left
+  { x: W / 2,  y: CTRL_Y + 118 },  // HOME → bottom center
+];
 
 // Pitch definitions
 export const PITCHES = [
