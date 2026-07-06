@@ -11,7 +11,7 @@ import {
   drawMessage, drawCenterMessage, drawBatterInfo, drawStrikeZone, drawTapToContinue,
 } from './ui.js';
 import {
-  playPitch, playSwing, playHit, playStrike, playBall,
+  playPitch, playSwing, playHit, playStrike, playSwingMiss, playBall,
   playOut, playRun, playHomeRun, playFoul, playWalk,
   playThrow, playCatch, playSafe, playSlide, playInningBell, playGameFinale,
   startMusic, stopMusic,
@@ -175,30 +175,36 @@ class Runner {
     this.running = false;
     this.out = false;
     this.scored = false;
+    this._anim = 0;
   }
   runTo(base) {
     this.targetBase = clamp(base, 0, 3);
     this.running = true;
   }
   update(dt) {
-    if (!this.running || this.out || this.scored) return;
-    const target = BASE_POS[this.targetBase];
-    const dx = target.x - this.x;
-    const dy = target.y - this.y;
-    const d = Math.hypot(dx, dy);
-    const spd = (this.player.speed / 9) * 145 + 50;
-    if (d < 4) {
-      this.x = target.x; this.y = target.y;
-      this.base = this.targetBase;
-      this.running = false;
-    } else {
-      this.x += (dx / d) * spd * dt;
-      this.y += (dy / d) * spd * dt;
+    if (this.out || this.scored) return;
+    if (this.running) {
+      this._anim = (this._anim + dt * 2.2) % 2;
+      const target = BASE_POS[this.targetBase];
+      const dx = target.x - this.x;
+      const dy = target.y - this.y;
+      const d = Math.hypot(dx, dy);
+      const spd = (this.player.speed / 9) * 145 + 50;
+      if (d < 4) {
+        this.x = target.x; this.y = target.y;
+        this.base = this.targetBase;
+        this.running = false;
+      } else {
+        this.x += (dx / d) * spd * dt;
+        this.y += (dy / d) * spd * dt;
+      }
     }
   }
   draw(ctx, team) {
     if (this.scored || this.out) return;
-    drawKid(ctx, this.x, this.y, team.primary, team.secondary, this.player.skin, 15);
+    // Running bob: two bounces per stride cycle
+    const bob = this.running ? Math.abs(Math.sin(this._anim * Math.PI)) * 5 : 0;
+    drawKid(ctx, this.x, this.y - bob, team.primary, team.secondary, this.player.skin, 15);
   }
 }
 
@@ -333,29 +339,28 @@ export class Game {
   // Called when the player taps SWING
   _playerSwing() {
     if (this.state !== S.PITCHING || this.topInning) return; // not player's turn to bat
-    playSwing();
     this.swingAnim = 1;
 
     // Evaluate hit quality based on ball proximity to plate
+    // Windows are generous (kid-friendly: 4-7 year old players)
     const bally = this.ball.y;
     const platey = HOME.y;
     const diff = Math.abs(bally - platey);
     const ballx = this.ball.x;
-    const platex = HOME.x;
-    const xDiff = Math.abs(ballx - platex);
+    const xDiff = Math.abs(ballx - HOME.x);
 
     let quality, hitPower;
-    if (diff < 14 && xDiff < 18) {
+    if (diff < 22 && xDiff < 32) {
       quality = 'PERFECT'; hitPower = rand(0.75, 1.0);
-    } else if (diff < 28 && xDiff < 28) {
-      quality = 'GOOD';    hitPower = rand(0.45, 0.75);
-    } else if (diff < 45) {
-      quality = 'WEAK';    hitPower = rand(0.2, 0.45);
+    } else if (diff < 55 && xDiff < 52) {
+      quality = 'GOOD';    hitPower = rand(0.45, 0.78);
+    } else if (diff < 90 && xDiff < 72) {
+      quality = 'WEAK';    hitPower = rand(0.2, 0.48);
     } else {
       // Swing and miss
-      playStrike();
+      playSwingMiss();
       this.strikes++;
-      this._showMsg('SWING!', '#FFD700');
+      this._showMsg('STRIKE!', '#FFD700');
       this._checkCount();
       this.ball.active = false;
       this.ball.trail = [];
@@ -363,8 +368,8 @@ export class Game {
       return;
     }
 
-    // Check foul (ball far off plate x-axis on good/perfect)
-    const isFoul = xDiff > 24 && quality !== 'WEAK';
+    // Check foul (wider tolerance before calling foul — kids deserve the hit)
+    const isFoul = xDiff > 50 && quality !== 'WEAK';
 
     if (isFoul && this.strikes < 2) {
       playFoul();
@@ -377,7 +382,8 @@ export class Game {
       return;
     }
 
-    // It's a hit!
+    // It's a hit! (bat swoosh + crack)
+    playSwing();
     playHit(quality);
 
     // Determine hit direction angle (from home toward outfield)
@@ -592,12 +598,13 @@ export class Game {
   _calcHitOutcome(quality, power, speed) {
     const batter = this._batter;
     const luck = batter.luck / 10;
-    const roll = Math.random() * 0.4 + power * 0.6 + luck * 0.15;
+    // Kid-friendly: more hits, more home runs, fewer outs
+    const roll = Math.random() * 0.22 + power * 0.78 + luck * 0.15;
 
-    if (roll > 0.97) return { type: 'homer',  bases: 4, label: 'HOME RUN!!',   color: '#FFD700' };
-    if (roll > 0.82) return { type: 'triple', bases: 3, label: 'TRIPLE!!',     color: '#f4a261' };
-    if (roll > 0.60) return { type: 'double', bases: 2, label: 'DOUBLE!',      color: '#4cc9f0' };
-    if (roll > 0.30) return { type: 'single', bases: 1, label: 'SINGLE!',      color: '#7fff7f' };
+    if (roll > 0.93) return { type: 'homer',  bases: 4, label: 'HOME RUN!!',   color: '#FFD700' };
+    if (roll > 0.76) return { type: 'triple', bases: 3, label: 'TRIPLE!!',     color: '#f4a261' };
+    if (roll > 0.52) return { type: 'double', bases: 2, label: 'DOUBLE!',      color: '#4cc9f0' };
+    if (roll > 0.18) return { type: 'single', bases: 1, label: 'SINGLE!',      color: '#7fff7f' };
     return              { type: 'out',    bases: 0, label: quality === 'WEAK' ? 'GROUNDOUT' : 'FLYOUT!', color: '#ff8f8f' };
   }
 
@@ -733,9 +740,9 @@ export class Game {
         this._startFielderChase();
       } else {
         // CPU misses
-        playStrike();
+        playSwingMiss();
         this.strikes++;
-        this._showMsg('SWING!', '#FFD700');
+        this._showMsg('STRIKE!', '#FFD700');
         this._checkCount();
       }
     } else if (diff > 40 || xDiff > 30) {
@@ -788,8 +795,8 @@ export class Game {
         // Apply curve acceleration
         this.ball.vx += this._curveAccel * dt * 1.8;
 
-        // Activate swing zone when ball is approaching plate
-        if (this.ball.y > HOME.y - 55) this.swingZoneActive = true;
+        // Activate swing zone early so kids can see it and react
+        if (this.ball.y > HOME.y - 100) this.swingZoneActive = true;
 
         // Ball passed plate — auto-evaluate for CPU hitter
         if (this.ball.y > HOME.y + 20) {
@@ -969,11 +976,16 @@ export class Game {
     const runTeam = this.topInning ? this.cpuTeam : this.playerTeam;
     this.runners.forEach(r => r.draw(ctx, runTeam));
 
-    // Draw batter
-    const batTeam  = this.topInning ? this.cpuTeam : this.playerTeam;
-    const batSkin  = this._batter.skin;
-    const swingOff = this.swingAnim * 12;
-    drawKid(ctx, HOME.x - 20 + swingOff, HOME.y - 5, batTeam.primary, batTeam.secondary, batSkin, 17);
+    // Draw batter (only during active at-bat — disappears once play resolves)
+    if (this.state === S.PRE_PITCH || this.state === S.PITCHING || this.state === S.HIT_ANIM) {
+      const batTeam  = this.topInning ? this.cpuTeam : this.playerTeam;
+      const batSkin  = this._batter.skin;
+      const swingOff = this.swingAnim * 12;
+      const bx = HOME.x - 20 + swingOff;
+      const by = HOME.y - 5;
+      this._drawBat(ctx, bx, by, this.swingAnim);
+      drawKid(ctx, bx, by, batTeam.primary, batTeam.secondary, batSkin, 17);
+    }
 
     // Ball
     this.ball.draw(ctx);
@@ -1006,6 +1018,51 @@ export class Game {
     if (this.state === S.PLAY_RESULT && this.stateTimer > 1.5) {
       drawTapToContinue(ctx);
     }
+  }
+
+  _drawBat(ctx, x, y, swingAnim) {
+    // Pivot at batter's hands (right side, arm height, size-17 character)
+    const hx = x + 9;
+    const hy = y - 9;
+    // Angle: 0.6 = ready/cocked (lower-right), sweeps CCW to -1.55 = follow-through (upper)
+    const angle = swingAnim === 0 ? 0.6 : lerp(0.6, -1.55, 1 - swingAnim);
+
+    ctx.save();
+    ctx.translate(hx, hy);
+    ctx.rotate(angle);
+
+    // Handle shaft (behind the pivot, negative direction)
+    ctx.fillStyle = '#7B4A1E';
+    ctx.beginPath();
+    ctx.roundRect(-12, -2.2, 15, 5, 2);
+    ctx.fill();
+
+    // Knob at handle end
+    ctx.fillStyle = '#4A2008';
+    ctx.beginPath();
+    ctx.arc(-12, 0.5, 3.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Barrel (forward, positive direction)
+    ctx.fillStyle = '#C4883A';
+    ctx.beginPath();
+    ctx.roundRect(3, -5, 22, 10, 4.5);
+    ctx.fill();
+
+    // Barrel end cap
+    ctx.beginPath();
+    ctx.arc(25, 0, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Subtle wood grain lines on barrel
+    ctx.strokeStyle = 'rgba(90,45,8,0.32)';
+    ctx.lineWidth = 0.9;
+    for (let i = 0; i < 3; i++) {
+      const gx = 7 + i * 6;
+      ctx.beginPath(); ctx.moveTo(gx, -4); ctx.lineTo(gx, 4); ctx.stroke();
+    }
+
+    ctx.restore();
   }
 
   _drawControls(ctx) {
