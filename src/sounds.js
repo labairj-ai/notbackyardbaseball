@@ -341,15 +341,17 @@ function scheduleMusic() {
     if (currentInning !== 'menu' && nextNoteAt >= nextSongChangeAt) {
       selectNextGameplaySong();
       // Frequent rotation keeps the short game soundtrack varied.
-      nextSongChangeAt = nextNoteAt + 8 + Math.random() * 4;
+      nextSongChangeAt = nextNoteAt + 4 + Math.random() * 3;
     }
   }
   scheduleTimer = setTimeout(scheduleMusic, 40);
 }
 
-// Pick one random song per inning, avoiding an immediate repeat.
+// Start or switch music. Gameplay always picks a fresh random theme; menu uses
+// its title theme. Avoid early-returning for gameplay so repeated half-innings
+// cannot get stuck on the same loop.
 export function startMusic(inning) {
-  if (musicPlaying && currentInning === inning) return;
+  if (musicPlaying && currentInning === 'menu' && inning === 'menu') return;
   stopMusic();
   if (inning === 'menu') {
     currentSong = MUSIC_MENU;
@@ -363,7 +365,7 @@ export function startMusic(inning) {
   nextNoteAt = actx.currentTime + 0.08;
   nextSongChangeAt = inning === 'menu'
     ? Infinity
-    : actx.currentTime + 8 + Math.random() * 4;
+    : actx.currentTime + 4 + Math.random() * 3;
   scheduleMusic();
 }
 

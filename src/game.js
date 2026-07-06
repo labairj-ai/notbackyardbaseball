@@ -361,7 +361,7 @@ export class Game {
     this._groundBallPlay = false;
     this._fieldingStarted = false;
     this._hitQuality = null;
-    this.menuMusicOn = false;
+    startMusic('menu');
   }
 
   _startHalfInning() {
@@ -1675,21 +1675,6 @@ export class Game {
     ctx.fillText('▶ PLAY BALL!', 0, 0);
     ctx.restore();
 
-    // Browser audio requires a user gesture, so music has an explicit toggle.
-    const mx = W / 2 - 110, my = 492, mw = 220, mh = 46;
-    ctx.fillStyle = this.menuMusicOn ? '#1d6e2e' : '#1a3a6b';
-    ctx.beginPath(); ctx.roundRect(mx, my, mw, mh, 12); ctx.fill();
-    ctx.strokeStyle = this.menuMusicOn ? '#7fff7f' : '#4cc9f0';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.roundRect(mx, my, mw, mh, 12); ctx.stroke();
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 14px monospace';
-    ctx.fillText(
-      this.menuMusicOn ? '♫ HOME MUSIC: ON' : '♫ PLAY HOME MUSIC',
-      W / 2,
-      my + mh / 2
-    );
-
     // Credits
     ctx.fillStyle = '#444';
     ctx.textAlign = 'center';
@@ -1760,12 +1745,9 @@ export class Game {
   pointerDown(p) {
     switch (this.state) {
       case S.MENU:
+        startMusic('menu');
         if (p.x >= 70 && p.x <= 320 && p.y >= 398 && p.y <= 462) {
           this._startHalfInning();
-        } else if (p.x >= 85 && p.x <= 305 && p.y >= 492 && p.y <= 538) {
-          this.menuMusicOn = !this.menuMusicOn;
-          if (this.menuMusicOn) startMusic('menu');
-          else stopMusic();
         }
         break;
 

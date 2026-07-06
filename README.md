@@ -17,8 +17,8 @@ Play the deployed game:
 - Sequential baserunning around every base on doubles and triples
 - One-tap fielding with automatic base targeting
 - Visible ball landing, fielder pursuit, base coverage, and relay throws
-- Eight gameplay themes that rotate randomly every 8–12 seconds, sound effects,
-  and a separate home-screen theme
+- Eight gameplay themes that rotate randomly every 4–7 seconds, sound effects,
+  and an automatic home-screen theme
 
 ## Controls
 
