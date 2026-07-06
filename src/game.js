@@ -17,6 +17,18 @@ import {
   startMusic, stopMusic,
 } from './sounds.js';
 
+// ── Build info ────────────────────────────────────────────────────────────────
+const BUILD_STAMP = __BUILD_TIME__;
+function buildLabel() {
+  try {
+    const d = new Date(BUILD_STAMP);
+    return d.toLocaleString('en-US', {
+      timeZone: 'America/New_York', month: 'short', day: 'numeric',
+      year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+    }) + ' ET';
+  } catch { return ''; }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 function lerp(a, b, t) { return a + (b - a) * t; }
@@ -407,6 +419,97 @@ export class Game {
     this.ball.landY  = ly;
   }
 
+  _spawnBurst(x, y, n, colors) {
+    return Array.from({ length: n }, () => {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = rand(55, 230);
+      const life  = rand(0.7, 2.0);
+      return { x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 90,
+        ay: 210,
+        color: colors[randInt(0, colors.length - 1)],
+        size: rand(2.5, 8), life, maxLife: life };
+    });
+  }
+
+  _startHomerCelebration(batter, team) {
+    const HOMER_COLORS = ['#FFD700','#FFA500','#FF6347','#FF69B4','#87CEEB','#98FB98','#fff','#f4a261'];
+    this._homer = {
+      batter, team,
+      phase: 0, progress: 0,
+      x: HOME.x, y: HOME.y - 5,
+      done: false,
+      particles: this._spawnBurst(HOME.x, HOME.y, 45, HOMER_COLORS),
+    };
+    this._setState(S.HOMER_RUN);
+  }
+
+  _drawHomerCelebration(ctx) {
+    const h = this._homer;
+    if (!h) return;
+
+    // Atmospheric golden wash over field
+    ctx.fillStyle = 'rgba(255,195,0,0.07)';
+    ctx.fillRect(0, HUD_H, W, CTRL_Y - HUD_H);
+
+    // Particles
+    h.particles.forEach(p => {
+      if (p.life <= 0) return;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, (p.life / p.maxLife) * 1.4);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.fill();
+      ctx.restore();
+    });
+
+    // Glow each base the runner has passed
+    [FIRST, SECOND, THIRD].forEach((base, i) => {
+      if (i < h.phase) {
+        const g = ctx.createRadialGradient(base.x, base.y, 0, base.x, base.y, 22);
+        g.addColorStop(0, 'rgba(255,215,0,0.55)');
+        g.addColorStop(1, 'rgba(255,215,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(base.x, base.y, 22, 0, Math.PI * 2); ctx.fill();
+      }
+    });
+
+    // Running character
+    if (!h.done && h.batter && h.team) {
+      const bob = Math.sin(this.animTimer * 14) * 3;
+      drawKid(ctx, h.x, h.y - bob, h.team.primary, h.team.secondary, h.batter.skin, 20);
+    }
+
+    // "HOME RUN!!!" banner
+    const pulse = 1 + Math.sin(this.animTimer * 5.5) * 0.055;
+    ctx.save();
+    ctx.translate(W / 2, 186);
+    ctx.scale(pulse, pulse);
+    ctx.fillStyle = 'rgba(0,0,0,0.72)';
+    ctx.beginPath(); ctx.roundRect(-122, -30, 244, 60, 14); ctx.fill();
+    ctx.strokeStyle = '#FFD700'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.roundRect(-122, -30, 244, 60, 14); ctx.stroke();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = 'bold 35px monospace';
+    ctx.fillStyle = '#FFD700';
+    ctx.fillText('HOME RUN!!!', 0, 0);
+    ctx.restore();
+
+    // Orbiting sparkle dots
+    for (let i = 0; i < 10; i++) {
+      const a  = this.animTimer * 2.1 + i * (Math.PI * 2 / 10);
+      const r  = 108 + Math.sin(this.animTimer * 3 + i) * 14;
+      const sx = W / 2 + Math.cos(a) * r;
+      const sy = 186 + Math.sin(a) * (r * 0.28);
+      const ss = 2.8 + Math.sin(this.animTimer * 4.5 + i) * 1.5;
+      const sa = 0.45 + Math.sin(this.animTimer * 6 + i * 0.8) * 0.35;
+      ctx.beginPath(); ctx.arc(sx, sy, ss, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,215,0,${sa})`; ctx.fill();
+    }
+  }
+
   _handleThrow(baseIdx) {
     if (this.state !== S.THROW_DECISION) return;
     const basePos = [HOME, FIRST, SECOND, THIRD][baseIdx];
@@ -728,20 +831,64 @@ export class Game {
             this.fielders[this.activeFielderIdx].hasBall = true;
             playCatch();
           }
-          const preOutcome = this._pendingOutcome;
+          const preOutcome  = this._pendingOutcome;
+          const homerBatter = preOutcome?.type === 'homer' ? this._batter : null;
+          const homerTeam   = preOutcome?.type === 'homer'
+            ? (this.topInning ? this.cpuTeam : this.playerTeam) : null;
           this._resolveHit();
           if (this.state === S.INNING_END) break;
 
-          // Player fielding + runners after a hit → throw decision
-          if (this.topInning && preOutcome && preOutcome.type !== 'out' && this.runners.length > 0) {
+          if (preOutcome?.type === 'homer') {
+            this._startHomerCelebration(homerBatter, homerTeam);
+          } else if (this.topInning && preOutcome?.type !== 'out' && this.runners.length > 0) {
             this._setState(S.THROW_DECISION);
-          // Player batting + hit → runner advance option
-          } else if (!this.topInning && preOutcome && preOutcome.type !== 'out') {
+          } else if (!this.topInning && preOutcome?.type !== 'out') {
             this._setState(S.RUNNER_ADVANCE);
           } else {
             this._setState(S.PLAY_RESULT);
           }
         }
+        break;
+      }
+
+      case S.HOMER_RUN: {
+        const HOMER_COLORS = ['#FFD700','#FFA500','#FF6347','#FF69B4','#87CEEB','#98FB98','#fff'];
+        const BASES = [HOME, FIRST, SECOND, THIRD, HOME];
+        const LEG = 0.82;
+        const h = this._homer;
+        if (!h) { this._setState(S.PLAY_RESULT); break; }
+
+        // Update particles
+        h.particles.forEach(p => {
+          p.x += p.vx * dt; p.y += p.vy * dt;
+          p.vy += p.ay * dt; p.life -= dt;
+        });
+        h.particles = h.particles.filter(p => p.life > 0);
+
+        // Trail sparkles near runner
+        if (!h.done && Math.random() < 0.65) {
+          const life = rand(0.28, 0.7);
+          h.particles.push({ x: h.x + rand(-10,10), y: h.y + rand(-10,10),
+            vx: rand(-35,35), vy: rand(-70,-10), ay: 60,
+            color: HOMER_COLORS[randInt(0,6)], size: rand(1.5,4.5), life, maxLife: life });
+        }
+
+        // Advance runner along base circuit
+        if (!h.done) {
+          h.progress += dt / LEG;
+          if (h.progress >= 1) {
+            h.progress = 0;
+            h.phase++;
+            const burstBase = BASES[Math.min(h.phase, 4)];
+            h.particles.push(...this._spawnBurst(burstBase.x, burstBase.y, 28, HOMER_COLORS));
+            if (h.phase >= 4) { h.done = true; h.x = HOME.x; h.y = HOME.y - 5; }
+          }
+          if (!h.done) {
+            h.x = lerp(BASES[h.phase].x, BASES[h.phase+1].x, h.progress);
+            h.y = lerp(BASES[h.phase].y, BASES[h.phase+1].y, h.progress);
+          }
+        }
+        if (h.done && this.stateTimer > 4 * LEG + 1.2) this._setState(S.PLAY_RESULT);
         break;
       }
 
@@ -850,6 +997,9 @@ export class Game {
       drawMessage(ctx, this.msg, this.msgColor, 38, this.msgAlpha);
     }
 
+    // Homer celebration overlay (drawn above everything on field)
+    if (this.state === S.HOMER_RUN) this._drawHomerCelebration(ctx);
+
     // State-specific overlays
     if (this.state === S.INNING_END) this._drawInningEnd(ctx);
     if (this.state === S.GAME_OVER)  this._drawGameOver(ctx);
@@ -896,6 +1046,16 @@ export class Game {
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 16px monospace';
         ctx.fillText('⚾', W/2, CTRL_Y + 72);
+        break;
+
+      case S.HOMER_RUN:
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = 'bold 17px monospace';
+        ctx.fillStyle = '#FFD700';
+        ctx.fillText('ROUNDING THE BASES!', W/2, CTRL_Y + 50);
+        ctx.font = '13px monospace';
+        ctx.fillStyle = '#f4a261';
+        ctx.fillText("that's a DINGER!", W/2, CTRL_Y + 78);
         break;
 
       case S.THROW_DECISION:
@@ -1017,7 +1177,10 @@ export class Game {
     ctx.fillStyle = '#444';
     ctx.textAlign = 'center';
     ctx.font = '11px monospace';
-    ctx.fillText('notbackyardbaseball • tap anywhere to start', W/2, H - 20);
+    ctx.fillText('notbackyardbaseball', W/2, H - 30);
+    ctx.fillStyle = '#333';
+    ctx.font = '10px monospace';
+    ctx.fillText(`v ${buildLabel()}`, W/2, H - 14);
   }
 
   _drawInningEnd(ctx) {

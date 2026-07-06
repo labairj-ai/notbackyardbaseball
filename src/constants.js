@@ -18,8 +18,9 @@ export const FENCE_R = 168;
 export const HUD_H  = 70;   // scoreboard height
 export const CTRL_Y = 558;  // controls start y
 
-// Fielder home positions (CPU team defending)
+// Fielder home positions — full 9-player defense
 export const FIELDER_HOMES = [
+  { x: 195, y: 338, role: 'P'  },  // pitcher — on the mound
   { x: 195, y: 480, role: 'C'  },  // catcher — behind home plate
   { x: 340, y: 318, role: '1B' },  // first baseman
   { x: 268, y: 248, role: '2B' },  // second baseman
@@ -42,6 +43,7 @@ export const S = {
   PRE_PITCH:      'pre_pitch',
   PITCHING:       'pitching',
   HIT_ANIM:       'hit_anim',
+  HOMER_RUN:      'homer_run',
   THROW_DECISION: 'throw_decision',
   RUNNER_ADVANCE: 'runner_advance',
   PLAY_RESULT:    'play_result',
