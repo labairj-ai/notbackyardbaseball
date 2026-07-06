@@ -669,6 +669,15 @@ export class Game {
     const fromY = fielder ? fielder.y : MOUND.y;
     const throwDist = Math.hypot(basePos.x - fromX, basePos.y - fromY);
     const throwTime = throwDist / 340;  // throw speed px/s
+    const routineGrounderToFirst = this._groundBallPlay && targetBase === 1;
+    const fielderRole = fielder?.role;
+    const grounderOutBonus = routineGrounderToFirst
+      ? fielderRole === 'P' || fielderRole === '1B'
+        ? 0.82
+        : INFIELD_ROLES.has(fielderRole)
+          ? 0.66
+          : 0.30
+      : 0;
 
     // Pre-compute outcome (ball is in flight, runners keep running)
     let outRunner = null;
@@ -677,7 +686,9 @@ export class Game {
       if (r.targetBase === targetBase) {
         const runDist  = remainingRunnerDistance(r, targetBase);
         const runSpeed = runnerSpeed(r.player);
-        if (throwTime < runDist / runSpeed && runDist > 8) outRunner = r;
+        const runTime = runDist / runSpeed;
+        const alreadyAtBag = routineGrounderToFirst ? runDist <= 4 : runDist <= 8;
+        if (!alreadyAtBag && throwTime < runTime + grounderOutBonus) outRunner = r;
       }
     });
 
@@ -1183,6 +1194,12 @@ export class Game {
           const fieldingRole = this.activeFielderIdx >= 0
             ? this.fielders[this.activeFielderIdx].role
             : null;
+          const routineInfieldGrounder = INFIELD_ROLES.has(fieldingRole)
+            && this._pendingOutcome?.type === 'single'
+            && this._pendingOutcome?.bases === 1;
+
+          if (routineInfieldGrounder) this._groundBallPlay = true;
+
           if (
             this.topInning
             && INFIELD_ROLES.has(fieldingRole)
@@ -1203,9 +1220,12 @@ export class Game {
             this._setState(S.THROW_DECISION);
           } else if (!this.topInning && preOutcome?.type !== 'out') {
             const batterRunner = this.runners[this.runners.length - 1];
+            const contestedAtFirst = this._groundBallPlay
+              && preOutcome?.type === 'single'
+              && batterRunner?.targetBase === 1;
             this._handleThrow(
               batterRunner?.targetBase ?? 1,
-              { forceSafe: true, nextState: S.RUNNER_ADVANCE }
+              { forceSafe: !contestedAtFirst, nextState: S.RUNNER_ADVANCE }
             );
           } else {
             this._setState(S.PLAY_RESULT);
