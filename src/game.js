@@ -56,6 +56,12 @@ const BASE_PATH_MIDS = [
 const PERSPECTIVE = 0.28;  // height → upward screen-offset ratio
 const ARC_GRAVITY = 360;   // px/s²
 const INFIELD_ROLES = new Set(['P', '1B', '2B', 'SS', '3B']);
+const LEFT_FOUL_LINE = Math.PI * 1.25;
+const RIGHT_FOUL_LINE = Math.PI * 1.75;
+
+function isFoulAngle(angle) {
+  return angle < LEFT_FOUL_LINE || angle > RIGHT_FOUL_LINE;
+}
 
 function remainingRunnerDistance(runner, targetBase) {
   if (!runner.running || runner.nextBase > targetBase) {
@@ -468,25 +474,13 @@ export class Game {
     const earlyLate = (bally - HOME.y) / 20;
     let hitAngle = Math.PI * 1.5 + (-earlyLate * 0.5) + rand(-0.35, 0.35);
 
-    // Foul ball logic
-    let isFoul = false;
+    // Ground balls get more side-to-side variance before fair/foul is judged.
     if (quality === 'WEAK') {
-      // Ground balls: extra angular spread can roll foul down the lines
       hitAngle += rand(-0.6, 0.6);
-      const leftFoul  = Math.PI * 1.25;  // toward 3B
-      const rightFoul = Math.PI * 1.75;  // toward 1B
-      isFoul = hitAngle < leftFoul || hitAngle > rightFoul;
-    } else {
-      // Fly/line drive: foul if pulled too far off-center
-      isFoul = xDiff > 50;
     }
 
-    if (isFoul) {
-      playFoul();
-      this._showMsg('FOUL BALL!', '#f4a261');
-      if (this.strikes < 2) this.strikes++;
-      this.ball.active = false; this.ball.trail = [];
-      if (this.state !== S.INNING_END) this._setState(S.PRE_PITCH);
+    if (isFoulAngle(hitAngle)) {
+      this._resolveFoulBall(quality);
       return;
     }
 
@@ -762,6 +756,45 @@ export class Game {
     return mk('out', 0, 'FLYOUT!', '#ff8f8f');
   }
 
+  _resolveFoulBall(quality) {
+    this.ball.reset();
+
+    // A sharp foul tip caught by the catcher is a live strike and may be strike three.
+    const foulTip = Math.random() < 0.10;
+    if (foulTip) {
+      playStrike();
+      this.strikes++;
+      this._showMsg('FOUL TIP — STRIKE!', '#FFD700');
+      this._checkCount();
+      if (this.state !== S.INNING_END) this._setState(S.PRE_PITCH);
+      return;
+    }
+
+    // A foul fly that is legally caught retires the batter. Ground fouls cannot be caught.
+    const caughtFoul = quality !== 'WEAK' && Math.random() < 0.18;
+    if (caughtFoul) {
+      playCatch();
+      playOut();
+      this.outs++;
+      this._showMsg('FOUL BALL CAUGHT — OUT!', '#ff8f8f');
+      this._advanceBatterIdx();
+      this._resetCount();
+      this._checkInning();
+      if (this.state !== S.INNING_END) this._setState(S.PRE_PITCH);
+      return;
+    }
+
+    // An uncaught foul is dead. It cannot become strike three on a normal swing.
+    playFoul();
+    const alreadyTwoStrikes = this.strikes >= 2;
+    if (!alreadyTwoStrikes) this.strikes++;
+    this._showMsg(
+      alreadyTwoStrikes ? 'FOUL — STILL 2 STRIKES' : 'FOUL BALL!',
+      '#f4a261'
+    );
+    this._setState(S.PRE_PITCH);
+  }
+
   _startFielderChase() {
     const lx = this.ball.landX ?? (this.ball.x + this.ball.vx * 0.8);
     const ly = this.ball.landY ?? (this.ball.y + this.ball.vy * 0.8);
@@ -969,9 +1002,13 @@ export class Game {
       const hitRoll = Math.random();
       if (hitRoll < cpuEye * 0.8) {
         const power = rand(0.25, 0.85);
-        const angle = Math.PI * 1.5 + rand(-0.5, 0.5);
+        const angle = Math.PI * 1.5 + rand(-0.9, 0.9);
         const quality = power > 0.6 ? 'PERFECT' : power > 0.4 ? 'GOOD' : 'WEAK';
         playHit(quality);
+        if (isFoulAngle(angle)) {
+          this._resolveFoulBall(quality);
+          return;
+        }
         if (quality === 'WEAK') {
           // Every fielded ground ball is a play on the batter-runner at first.
           this._groundBallPlay = true;
