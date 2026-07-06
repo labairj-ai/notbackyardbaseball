@@ -6,9 +6,10 @@ import {
 import { drawField, highlightBase } from './field.js';
 import { drawKid, PLAYER_TEAM, CPU_TEAM } from './characters.js';
 import {
-  drawScoreboard, drawControlsBg, drawSwingButton, drawPitchButtons,
-  drawPitchButton, drawThrowButtons, drawThrowDecision, drawRunnerAdvance,
-  drawMessage, drawCenterMessage, drawBatterInfo, drawStrikeZone, drawTapToContinue,
+  drawScoreboard, drawControlsBg, drawSwingButton, drawSwingModeButtons,
+  drawPitchButtons, drawPitchButton, drawThrowButtons, drawThrowDecision,
+  drawRunnerAdvance, drawMessage, drawCenterMessage, drawBatterInfo,
+  drawStrikeZone, drawTapToContinue,
 } from './ui.js';
 import {
   playPitch, playSwing, playHit, playStrike, playSwingMiss, playBall,
@@ -138,6 +139,7 @@ class Fielder {
     this.speed = rand(130, 165);
     this.hasBall = false;
     this.anim = 0;
+    this.throwAnim = 0;
   }
   update(dt) {
     const dx = this.tx - this.x;
@@ -150,10 +152,20 @@ class Fielder {
       this.anim += dt * 8;
     }
     this.hasBall && (this.anim = 0);
+    if (this.throwAnim > 0) this.throwAnim = Math.max(0, this.throwAnim - dt * 2.8);
   }
   draw(ctx, team) {
     const bob = Math.sin(this.anim) * 2;
-    drawKid(ctx, this.x, this.y - bob, this.color, team.secondary, this.skin, 13);
+    const lean = Math.sin(this.throwAnim * Math.PI) * 5;
+    drawKid(ctx, this.x + lean, this.y - bob, this.color, team.secondary, this.skin, 13);
+    if (this.throwAnim > 0) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.65)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(this.x - 12, this.y - 22);
+      ctx.lineTo(this.x - 22, this.y - 18);
+      ctx.stroke();
+    }
     if (this.hasBall) {
       ctx.fillStyle = '#fff';
       ctx.beginPath();
@@ -252,12 +264,15 @@ export class Game {
     this.swingAnim = 0;  // 0-1
     this.swingDir  = 1;  // 1 = swinging
     this.pitcherAnim = 0;
+    this.swingMode = 'normal';  // 'normal' | 'power'
+    this._throwAnim = null;
   }
 
   _startHalfInning() {
     this.outs = 0; this.strikes = 0; this.balls = 0;
     this.runners = [];
     this._spawnFielders();
+    startMusic(this.inning);
     this._setState(S.PRE_PITCH);
   }
 
@@ -338,59 +353,63 @@ export class Game {
 
   // Called when the player taps SWING
   _playerSwing() {
-    if (this.state !== S.PITCHING || this.topInning) return; // not player's turn to bat
+    if (this.state !== S.PITCHING || this.topInning) return;
     this.swingAnim = 1;
 
-    // Evaluate hit quality based on ball proximity to plate
-    // Windows are generous (kid-friendly: 4-7 year old players)
     const bally = this.ball.y;
-    const platey = HOME.y;
-    const diff = Math.abs(bally - platey);
-    const ballx = this.ball.x;
-    const xDiff = Math.abs(ballx - HOME.x);
+    const diff  = Math.abs(bally - HOME.y);
+    const xDiff = Math.abs(this.ball.x - HOME.x);
+
+    // Power swing = 72% of normal window (harder to make contact, but better outcomes)
+    const wm = this.swingMode === 'power' ? 0.72 : 1.0;
 
     let quality, hitPower;
-    if (diff < 22 && xDiff < 32) {
+    if (diff < 22 * wm && xDiff < 32 * wm) {
       quality = 'PERFECT'; hitPower = rand(0.75, 1.0);
-    } else if (diff < 55 && xDiff < 52) {
+    } else if (diff < 55 * wm && xDiff < 52 * wm) {
       quality = 'GOOD';    hitPower = rand(0.45, 0.78);
-    } else if (diff < 90 && xDiff < 72) {
+    } else if (diff < 90 * wm && xDiff < 72 * wm) {
       quality = 'WEAK';    hitPower = rand(0.2, 0.48);
     } else {
-      // Swing and miss
       playSwingMiss();
       this.strikes++;
       this._showMsg('STRIKE!', '#FFD700');
       this._checkCount();
-      this.ball.active = false;
-      this.ball.trail = [];
+      this.ball.active = false; this.ball.trail = [];
       if (this.state !== S.INNING_END) this._setState(S.PRE_PITCH);
       return;
     }
 
-    // Check foul (wider tolerance before calling foul — kids deserve the hit)
-    const isFoul = xDiff > 50 && quality !== 'WEAK';
+    // Hit direction — compute before foul check so ground spread can affect it
+    const earlyLate = (bally - HOME.y) / 20;
+    let hitAngle = Math.PI * 1.5 + (-earlyLate * 0.5) + rand(-0.35, 0.35);
 
-    if (isFoul && this.strikes < 2) {
+    // Foul ball logic
+    let isFoul = false;
+    if (quality === 'WEAK') {
+      // Ground balls: extra angular spread can roll foul down the lines
+      hitAngle += rand(-0.6, 0.6);
+      const leftFoul  = Math.PI * 1.25;  // toward 3B
+      const rightFoul = Math.PI * 1.75;  // toward 1B
+      isFoul = hitAngle < leftFoul || hitAngle > rightFoul;
+    } else {
+      // Fly/line drive: foul if pulled too far off-center
+      isFoul = xDiff > 50;
+    }
+
+    if (isFoul) {
       playFoul();
-      this.strikes++;
-      this._showMsg('FOUL!', '#f4a261');
-      this._checkCount();
-      this.ball.active = false;
-      this.ball.trail = [];
+      this._showMsg('FOUL BALL!', '#f4a261');
+      if (this.strikes < 2) this.strikes++;
+      this.ball.active = false; this.ball.trail = [];
       if (this.state !== S.INNING_END) this._setState(S.PRE_PITCH);
       return;
     }
 
-    // It's a hit! (bat swoosh + crack)
+    // It's a hit! Power swing boosts hitPower for extra-base potential
+    if (this.swingMode === 'power') hitPower = Math.min(1.0, hitPower * 1.25);
     playSwing();
     playHit(quality);
-
-    // Determine hit direction angle (from home toward outfield)
-    const earlyLate = (bally - platey) / 20;
-    const baseAngle = Math.PI * 1.5;
-    const pullOffset = -earlyLate * 0.5;
-    const hitAngle = baseAngle + pullOffset + rand(-0.35, 0.35);
 
     const maxSpeed = 420 + this._batter.power * 20;
     const speed = hitPower * maxSpeed;
@@ -518,39 +537,41 @@ export class Game {
 
   _handleThrow(baseIdx) {
     if (this.state !== S.THROW_DECISION) return;
-    const basePos = [HOME, FIRST, SECOND, THIRD][baseIdx];
-    const fielder  = this.activeFielderIdx >= 0 ? this.fielders[this.activeFielderIdx] : null;
-    const throwDist = fielder ? Math.hypot(fielder.x - basePos.x, fielder.y - basePos.y) : 450;
-    const throwTime = throwDist / 340; // throw speed px/s
+    const targetBase = [1, 2, 3, 0][baseIdx];
+    const basePos = BASE_POS[targetBase];
+    const fielder = this.activeFielderIdx >= 0 ? this.fielders[this.activeFielderIdx] : null;
 
-    let gotOut = false;
+    const fromX = fielder ? fielder.x : MOUND.x;
+    const fromY = fielder ? fielder.y : MOUND.y;
+    const throwDist = Math.hypot(basePos.x - fromX, basePos.y - fromY);
+    const throwTime = throwDist / 340;  // throw speed px/s
+
+    // Pre-compute outcome (ball is in flight, runners keep running)
+    let outRunner = null;
     this.runners.forEach(r => {
       if (r.out || r.scored) return;
-      if (r.targetBase === baseIdx) {
+      if (r.targetBase === targetBase) {
         const runDist  = Math.hypot(r.x - basePos.x, r.y - basePos.y);
         const runSpeed = (r.player.speed / 9) * 145 + 50;
-        const runTime  = runDist / runSpeed;
-        if (throwTime < runTime && runDist > 8) {
-          r.out = true;
-          gotOut = true;
-        }
+        if (throwTime < runDist / runSpeed && runDist > 8) outRunner = r;
       }
     });
 
-    playThrow();
-    if (gotOut) {
-      setTimeout(() => playSlide(), 220);
-      playOut();
-      this.outs++;
-      this._showMsg('OUT!', '#ff8f8f');
-      this.runners = this.runners.filter(r => !r.out);
-      this._checkInning();
-      if (this.state === S.INNING_END) return;
-    } else {
-      playSafe();
-      this._showMsg('SAFE!', '#7fff7f');
+    if (fielder) {
+      fielder.hasBall = false;
+      fielder.throwAnim = 1;
     }
-    this._setState(S.PLAY_RESULT);
+    playThrow();
+
+    // Animate ball flying to the base
+    const duration = Math.max(0.22, Math.min(throwTime, 0.75));
+    this._throwAnim = { fromX, fromY, toX: basePos.x, toY: basePos.y,
+                        progress: 0, duration, outRunner, targetBase };
+    this.ball.reset();
+    this.ball.x = fromX; this.ball.y = fromY;
+    this.ball.vx = 0; this.ball.vy = 0;
+    this.ball.active = true; this.ball.inArc = false; this.ball.height = 0;
+    this._setState(S.THROW_ANIM);
   }
 
   _handleRunnerAdvance(runnerIdx) {
@@ -596,16 +617,24 @@ export class Game {
   }
 
   _calcHitOutcome(quality, power, speed) {
-    const batter = this._batter;
-    const luck = batter.luck / 10;
-    // Kid-friendly: more hits, more home runs, fewer outs
-    const roll = Math.random() * 0.22 + power * 0.78 + luck * 0.15;
+    const luck = (this._batter.luck ?? 5) / 10;
+    const roll = Math.random() * 0.22 + power * 0.78 + luck * 0.12;
+    const mk = (type, bases, label, color) => ({ type, bases, label, color });
 
-    if (roll > 0.93) return { type: 'homer',  bases: 4, label: 'HOME RUN!!',   color: '#FFD700' };
-    if (roll > 0.76) return { type: 'triple', bases: 3, label: 'TRIPLE!!',     color: '#f4a261' };
-    if (roll > 0.52) return { type: 'double', bases: 2, label: 'DOUBLE!',      color: '#4cc9f0' };
-    if (roll > 0.18) return { type: 'single', bases: 1, label: 'SINGLE!',      color: '#7fff7f' };
-    return              { type: 'out',    bases: 0, label: quality === 'WEAK' ? 'GROUNDOUT' : 'FLYOUT!', color: '#ff8f8f' };
+    if (this.swingMode === 'power') {
+      // Power swing: more extra-base hits, less likely to get singles
+      if (roll > 0.88) return mk('homer',  4, 'HOME RUN!!',   '#FFD700');
+      if (roll > 0.73) return mk('triple', 3, 'TRIPLE!!',     '#f4a261');
+      if (roll > 0.52) return mk('double', 2, 'DOUBLE!',      '#4cc9f0');
+      if (roll > 0.20) return mk('single', 1, 'SINGLE!',      '#7fff7f');
+    } else {
+      // Normal swing: more singles/doubles, homers rare but possible
+      if (roll > 0.96) return mk('homer',  4, 'HOME RUN!!',   '#FFD700');
+      if (roll > 0.86) return mk('triple', 3, 'TRIPLE!!',     '#f4a261');
+      if (roll > 0.63) return mk('double', 2, 'DOUBLE!',      '#4cc9f0');
+      if (roll > 0.20) return mk('single', 1, 'SINGLE!',      '#7fff7f');
+    }
+    return mk('out', 0, quality === 'WEAK' ? 'GROUNDOUT' : 'FLYOUT!', '#ff8f8f');
   }
 
   _startFielderChase() {
@@ -903,6 +932,41 @@ export class Game {
         if (this.stateTimer > 2.8) this._setState(S.PLAY_RESULT);
         break;
 
+      case S.THROW_ANIM: {
+        const t = this._throwAnim;
+        if (!t) {
+          this._setState(S.PLAY_RESULT);
+          break;
+        }
+        t.progress = Math.min(1, t.progress + dt / t.duration);
+        const eased = 1 - Math.pow(1 - t.progress, 2);
+        this.ball.x = lerp(t.fromX, t.toX, eased);
+        this.ball.y = lerp(t.fromY, t.toY, eased);
+        this.ball.height = Math.sin(t.progress * Math.PI) * 28;
+        this.ball.trail.push({ x: this.ball.x, y: this.ball.y - this.ball.height * PERSPECTIVE });
+        if (this.ball.trail.length > 14) this.ball.trail.shift();
+
+        if (t.progress >= 1) {
+          this.ball.active = false;
+          playCatch();
+          if (t.outRunner && !t.outRunner.out && !t.outRunner.scored) {
+            t.outRunner.out = true;
+            this.outs++;
+            playSlide();
+            playOut();
+            this._showMsg('OUT!', '#ff8f8f');
+            this.runners = this.runners.filter(r => !r.out);
+            this._checkInning();
+          } else {
+            playSafe();
+            this._showMsg('SAFE!', '#7fff7f');
+          }
+          this._throwAnim = null;
+          if (this.state !== S.INNING_END) this._setState(S.PLAY_RESULT);
+        }
+        break;
+      }
+
       case S.RUNNER_ADVANCE:
         if (this.stateTimer > 2.8) this._setState(S.PLAY_RESULT);
         break;
@@ -1000,7 +1064,7 @@ export class Game {
     this._drawControls(ctx);
 
     // Batter info (only when player is batting — avoids overlap with pitch buttons)
-    if (!this.topInning && (this.state === S.PRE_PITCH || this.state === S.PITCHING)) {
+    if (!this.topInning && this.state === S.PITCHING) {
       drawBatterInfo(ctx, this._batter, batTeam.primary);
     }
 
@@ -1087,13 +1151,13 @@ export class Game {
           drawPitchButtons(ctx, this.selectedPitchIdx);
           drawPitchButton(ctx);
         } else {
-          // CPU pitching, player waits
+          // Choose contact vs. power before the CPU delivers.
+          drawSwingModeButtons(ctx, this.swingMode);
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillStyle = '#888';
-          ctx.font = '15px monospace';
-          ctx.fillText('GET READY...', W/2, CTRL_Y + 72);
-          drawSwingButton(ctx, false);
+          ctx.fillStyle = '#aaa';
+          ctx.font = '12px monospace';
+          ctx.fillText('CHOOSE YOUR SWING', W/2, CTRL_Y + 92);
         }
         break;
 
@@ -1117,6 +1181,14 @@ export class Game {
 
       case S.THROW_DECISION:
         drawThrowDecision(ctx, this);
+        break;
+
+      case S.THROW_ANIM:
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#4cc9f0';
+        ctx.font = 'bold 16px monospace';
+        ctx.fillText('THROWING...', W/2, CTRL_Y + 72);
         break;
 
       case S.RUNNER_ADVANCE:
@@ -1299,12 +1371,10 @@ export class Game {
   pointerDown(p) {
     switch (this.state) {
       case S.MENU:
-        startMusic();
         this._startHalfInning();
         break;
 
       case S.GAME_OVER:
-        startMusic();
         this._resetGame();
         this._startHalfInning();
         break;
@@ -1317,6 +1387,8 @@ export class Game {
           if (this._hitPitchButton(p)) {
             this._beginPitch();
           }
+        } else {
+          this._handleSwingModeSelect(p);
         }
         break;
 
@@ -1379,6 +1451,18 @@ export class Game {
       const bx = startX + i * (bw + gap);
       if (p.x >= bx && p.x <= bx + bw && p.y >= by && p.y <= by + bh) {
         this.selectedPitchIdx = i;
+      }
+    });
+  }
+
+  _handleSwingModeSelect(p) {
+    const gap = 8, bh = 52;
+    const bw = (W - 20 - gap) / 2;
+    const y = CTRL_Y + 18;
+    ['normal', 'power'].forEach((mode, i) => {
+      const bx = 10 + i * (bw + gap);
+      if (p.x >= bx && p.x <= bx + bw && p.y >= y && p.y <= y + bh) {
+        this.swingMode = mode;
       }
     });
   }

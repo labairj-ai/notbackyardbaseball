@@ -109,6 +109,34 @@ export function drawControlsBg(ctx) {
 }
 
 // ── Buttons ───────────────────────────────────────────────────────────────────
+
+// Swing mode toggle shown when player is waiting for CPU pitch
+export function drawSwingModeButtons(ctx, mode) {
+  const gap = 8, bh = 52;
+  const bw = (W - 20 - gap) / 2;  // two equal buttons, 10px margins each side
+  const y  = CTRL_Y + 18;
+  const buttons = [
+    { id: 'normal', label: 'NORMAL',    sub: 'more contact',   color: '#4cc9f0' },
+    { id: 'power',  label: '⚡ POWER',  sub: 'more home runs', color: '#f4a261' },
+  ];
+  buttons.forEach((btn, i) => {
+    const bx  = 10 + i * (bw + gap);
+    const sel = mode === btn.id;
+    ctx.fillStyle = sel ? btn.color : '#1a3a6b';
+    ctx.beginPath(); ctx.roundRect(bx, y, bw, bh, 12); ctx.fill();
+    ctx.strokeStyle = sel ? '#fff' : btn.color;
+    ctx.lineWidth = sel ? 2.5 : 1.5;
+    ctx.beginPath(); ctx.roundRect(bx, y, bw, bh, 12); ctx.stroke();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = sel ? '#fff' : btn.color;
+    ctx.font = `bold 15px monospace`;
+    ctx.fillText(btn.label, bx + bw/2, y + bh/2 - 7);
+    ctx.font = '10px monospace';
+    ctx.fillStyle = sel ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.38)';
+    ctx.fillText(btn.sub, bx + bw/2, y + bh/2 + 11);
+  });
+}
+
 export function drawSwingButton(ctx, active) {
   const bx = W / 2 - 80, by = CTRL_Y + 30, bw = 160, bh = 80;
   const glow = active ? 1 : 0;

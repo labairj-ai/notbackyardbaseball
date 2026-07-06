@@ -45,6 +45,7 @@ export const S = {
   HIT_ANIM:       'hit_anim',
   HOMER_RUN:      'homer_run',
   THROW_DECISION: 'throw_decision',
+  THROW_ANIM:     'throw_anim',
   RUNNER_ADVANCE: 'runner_advance',
   PLAY_RESULT:    'play_result',
   INNING_END:     'inning_end',

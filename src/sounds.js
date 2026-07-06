@@ -192,34 +192,71 @@ let musicPlaying = false;
 let scheduleTimer = null;
 let noteIdx = 0;
 let nextNoteAt = 0;
+let currentSong = null;
+let currentInning = null;
+let lastSongIdx = -1;
 
 const BT = 60 / 136;        // beat duration at 136bpm
-const E  = BT / 2;          // eighth note
-const Q  = BT;               // quarter note
-const DQ = BT * 1.5;         // dotted quarter
-const H  = BT * 2;           // half note
+const E  = BT / 2;
+const Q  = BT;
+const DQ = BT * 1.5;
+const H  = BT * 2;
 
-// Original upbeat 8-bit baseball loop (C major pentatonic: C D E G A)
-const MUSIC = [
-  // Phrase A — bouncy ascending line
+// Song A — original bouncy loop
+const MUSIC_A = [
   [659,E],[523,E],[659,Q],[784,E],[659,E],
   [784,DQ],[523,E],[659,E],[440,DQ],[0,E],
-  // Phrase B — higher register answer
   [784,E],[659,E],[784,Q],[880,E],[784,E],
   [880,DQ],[784,E],[659,E],[523,DQ],[0,E],
-  // Phrase C — build up
   [523,E],[659,E],[784,E],[1047,Q],[880,E],
   [784,E],[659,E],[523,E],[440,E],[392,H],[0,E],
-  // Phrase D — triumphant resolve
   [659,E],[784,E],[880,Q],[784,E],[659,E],
   [784,Q],[659,E],[523,E],[440,E],[330,H],[0,DQ],
 ];
 
+// Song B — march/fanfare feel
+const MUSIC_B = [
+  [659,DQ],[523,E],[659,Q],[784,E],[659,E],
+  [784,Q],[880,E],[784,E],[659,H],[0,E],
+  [523,E],[523,E],[659,Q],[784,E],[523,E],
+  [659,DQ],[523,E],[440,H],[0,E],
+  [523,E],[659,E],[784,E],[880,E],[784,E],[659,E],
+  [523,Q],[659,E],[523,E],[440,H],[0,E],
+  [784,E],[880,E],[1047,Q],[880,E],[784,E],
+  [659,Q],[523,E],[440,E],[523,H],[0,DQ],
+];
+
+// Song C — slower country/ballpark feel (lower register)
+const MUSIC_C = [
+  [330,Q],[392,Q],[440,DQ],[392,E],
+  [330,H],[0,Q],[0,E],
+  [392,Q],[440,Q],[523,DQ],[440,E],
+  [392,H],[0,Q],[0,E],
+  [523,E],[587,E],[659,Q],[587,E],[523,E],
+  [440,Q],[392,E],[330,E],[392,H],[0,E],
+  [523,E],[587,E],[659,E],[784,Q],[659,E],
+  [587,E],[523,Q],[440,DQ],[330,E],[392,H],[0,E],
+];
+
+// Song D — fast/energetic
+const MUSIC_D = [
+  [523,E],[659,E],[784,E],[523,E],[659,E],[784,E],
+  [880,Q],[784,Q],[659,Q],[0,E],
+  [659,E],[784,E],[880,E],[659,E],[784,E],[880,E],
+  [1047,Q],[880,Q],[784,Q],[0,E],
+  [440,E],[523,E],[659,E],[784,E],[659,E],[523,E],
+  [440,Q],[392,E],[330,E],[392,H],[0,E],
+  [330,E],[392,E],[440,E],[523,E],[587,E],[659,E],
+  [784,Q],[659,Q],[523,H],[0,DQ],
+];
+
+const SONGS = [MUSIC_A, MUSIC_B, MUSIC_C, MUSIC_D];
+
 function scheduleMusic() {
-  if (!musicPlaying || !actx) return;
+  if (!musicPlaying || !actx || !currentSong) return;
   const ahead = 0.12;
   while (nextNoteAt < actx.currentTime + ahead) {
-    const [freq, dur] = MUSIC[noteIdx % MUSIC.length];
+    const [freq, dur] = currentSong[noteIdx % currentSong.length];
     if (freq > 0) {
       try {
         const osc = actx.createOscillator();
@@ -235,14 +272,23 @@ function scheduleMusic() {
       } catch {}
     }
     nextNoteAt += dur;
-    noteIdx = (noteIdx + 1) % MUSIC.length;
+    noteIdx = (noteIdx + 1) % currentSong.length;
   }
   scheduleTimer = setTimeout(scheduleMusic, 40);
 }
 
-export function startMusic() {
-  if (musicPlaying) return;
-  ac(); // ensure context
+// Pick one random song per inning, avoiding an immediate repeat.
+export function startMusic(inning) {
+  if (musicPlaying && currentInning === inning) return;
+  stopMusic();
+  let songIdx = Math.floor(Math.random() * SONGS.length);
+  if (SONGS.length > 1 && songIdx === lastSongIdx) {
+    songIdx = (songIdx + 1 + Math.floor(Math.random() * (SONGS.length - 1))) % SONGS.length;
+  }
+  lastSongIdx = songIdx;
+  currentInning = inning;
+  currentSong = SONGS[songIdx];
+  ac();
   musicPlaying = true;
   noteIdx = 0;
   nextNoteAt = actx.currentTime + 0.08;
