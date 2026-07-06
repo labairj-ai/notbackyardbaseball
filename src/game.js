@@ -48,6 +48,20 @@ const BASE_POS = [HOME, FIRST, SECOND, THIRD];
 const PERSPECTIVE = 0.28;  // height → upward screen-offset ratio
 const ARC_GRAVITY = 360;   // px/s²
 
+function remainingRunnerDistance(runner, targetBase) {
+  if (!runner.running || runner.nextBase > targetBase) {
+    return Math.hypot(runner.x - BASE_POS[targetBase].x, runner.y - BASE_POS[targetBase].y);
+  }
+  let distanceLeft = Math.hypot(
+    runner.x - BASE_POS[runner.nextBase].x,
+    runner.y - BASE_POS[runner.nextBase].y
+  );
+  for (let base = runner.nextBase; base < targetBase; base++) {
+    distanceLeft += dist(BASE_POS[base], BASE_POS[base + 1]);
+  }
+  return distanceLeft;
+}
+
 // ── Entity classes ────────────────────────────────────────────────────────────
 class Ball {
   constructor() { this.reset(); }
@@ -191,6 +205,7 @@ class Runner {
     this.x = BASE_POS[base].x;
     this.y = BASE_POS[base].y;
     this.targetBase = base;
+    this.nextBase = base;
     this.running = false;
     this.forceOut = false;
     this.out = false;
@@ -199,23 +214,28 @@ class Runner {
   }
   runTo(base, forceOut = false) {
     this.targetBase = clamp(base, 0, 3);
-    this.running = true;
+    this.nextBase = Math.min(this.base + 1, this.targetBase);
+    this.running = this.nextBase > this.base;
     this.forceOut = forceOut;
   }
   update(dt) {
     if (this.out || this.scored) return;
     if (this.running) {
       this._anim = (this._anim + dt * 2.2) % 2;
-      const target = BASE_POS[this.targetBase];
+      const target = BASE_POS[this.nextBase];
       const dx = target.x - this.x;
       const dy = target.y - this.y;
       const d = Math.hypot(dx, dy);
       const spd = runnerSpeed(this.player);
       if (d < 4) {
         this.x = target.x; this.y = target.y;
-        this.base = this.targetBase;
-        this.running = false;
-        this.forceOut = false;
+        this.base = this.nextBase;
+        if (this.base < this.targetBase) {
+          this.nextBase = this.base + 1;
+        } else {
+          this.running = false;
+          this.forceOut = false;
+        }
       } else {
         this.x += (dx / d) * spd * dt;
         this.y += (dy / d) * spd * dt;
@@ -567,7 +587,7 @@ export class Game {
         const basePos = BASE_POS[r.targetBase];
         const throwTime = Math.hypot(basePos.x - fromX, basePos.y - fromY) / 340;
         const runSpeed = runnerSpeed(r.player);
-        const runTime = Math.hypot(r.x - basePos.x, r.y - basePos.y) / runSpeed;
+        const runTime = remainingRunnerDistance(r, r.targetBase) / runSpeed;
         return { targetBase: r.targetBase, margin: runTime - throwTime };
       });
     if (candidates.length === 0) return 1;
@@ -594,7 +614,7 @@ export class Game {
     this.runners.forEach(r => {
       if (r.out || r.scored) return;
       if (r.targetBase === targetBase) {
-        const runDist  = Math.hypot(r.x - basePos.x, r.y - basePos.y);
+        const runDist  = remainingRunnerDistance(r, targetBase);
         const runSpeed = runnerSpeed(r.player);
         if (throwTime < runDist / runSpeed && runDist > 8) outRunner = r;
       }
@@ -707,6 +727,28 @@ export class Game {
       const landY = clamp(ly, HUD_H + 10, CTRL_Y - 10);
       this.fielders[best].moveTo(landX, landY);
     }
+  }
+
+  _sendFieldersToCoverBases() {
+    const occupiedFielders = new Set();
+    if (this.activeFielderIdx >= 0) occupiedFielders.add(this.activeFielderIdx);
+
+    [FIRST, SECOND, THIRD, HOME].forEach(base => {
+      let bestIdx = -1;
+      let bestDist = Infinity;
+      this.fielders.forEach((fielder, idx) => {
+        if (occupiedFielders.has(idx)) return;
+        const d = Math.hypot(fielder.x - base.x, fielder.y - base.y);
+        if (d < bestDist) {
+          bestDist = d;
+          bestIdx = idx;
+        }
+      });
+      if (bestIdx >= 0) {
+        occupiedFielders.add(bestIdx);
+        this.fielders[bestIdx].moveTo(base.x, base.y);
+      }
+    });
   }
 
   _resolveHit() {
@@ -992,6 +1034,7 @@ export class Game {
             this.fielders[this.activeFielderIdx].hasBall = true;
             playCatch();
           }
+          this._sendFieldersToCoverBases();
           const preOutcome  = this._pendingOutcome;
           const homerBatter = preOutcome?.type === 'homer' ? this._batter : null;
           const homerTeam   = preOutcome?.type === 'homer'
