@@ -45,6 +45,14 @@ function runnerSpeed(player) {
 }
 
 const BASE_POS = [HOME, FIRST, SECOND, THIRD];
+// Outward lane points make runners visibly round the diamond instead of
+// appearing to cut through the infield on multi-base hits.
+const BASE_PATH_MIDS = [
+  null,
+  { x: 280, y: 415 }, // home → first
+  { x: 300, y: 245 }, // first → second
+  { x: 90,  y: 245 }, // second → third
+];
 const PERSPECTIVE = 0.28;  // height → upward screen-offset ratio
 const ARC_GRAVITY = 360;   // px/s²
 const INFIELD_ROLES = new Set(['P', '1B', '2B', 'SS', '3B']);
@@ -53,12 +61,21 @@ function remainingRunnerDistance(runner, targetBase) {
   if (!runner.running || runner.nextBase > targetBase) {
     return Math.hypot(runner.x - BASE_POS[targetBase].x, runner.y - BASE_POS[targetBase].y);
   }
-  let distanceLeft = Math.hypot(
-    runner.x - BASE_POS[runner.nextBase].x,
-    runner.y - BASE_POS[runner.nextBase].y
-  );
-  for (let base = runner.nextBase; base < targetBase; base++) {
-    distanceLeft += dist(BASE_POS[base], BASE_POS[base + 1]);
+  let x = runner.x;
+  let y = runner.y;
+  let distanceLeft = 0;
+  for (let i = runner.waypointIdx; i < runner.legPoints.length; i++) {
+    const point = runner.legPoints[i];
+    distanceLeft += Math.hypot(x - point.x, y - point.y);
+    x = point.x;
+    y = point.y;
+  }
+  for (let base = runner.nextBase + 1; base <= targetBase; base++) {
+    const mid = BASE_PATH_MIDS[base];
+    distanceLeft += Math.hypot(x - mid.x, y - mid.y);
+    distanceLeft += Math.hypot(mid.x - BASE_POS[base].x, mid.y - BASE_POS[base].y);
+    x = BASE_POS[base].x;
+    y = BASE_POS[base].y;
   }
   return distanceLeft;
 }
@@ -207,6 +224,8 @@ class Runner {
     this.y = BASE_POS[base].y;
     this.targetBase = base;
     this.nextBase = base;
+    this.legPoints = [];
+    this.waypointIdx = 0;
     this.running = false;
     this.forceOut = false;
     this.out = false;
@@ -218,21 +237,31 @@ class Runner {
     this.nextBase = Math.min(this.base + 1, this.targetBase);
     this.running = this.nextBase > this.base;
     this.forceOut = forceOut;
+    if (this.running) this._prepareLeg();
+  }
+  _prepareLeg() {
+    this.legPoints = [BASE_PATH_MIDS[this.nextBase], BASE_POS[this.nextBase]];
+    this.waypointIdx = 0;
   }
   update(dt) {
     if (this.out || this.scored) return;
     if (this.running) {
       this._anim = (this._anim + dt * 2.2) % 2;
-      const target = BASE_POS[this.nextBase];
+      const target = this.legPoints[this.waypointIdx];
       const dx = target.x - this.x;
       const dy = target.y - this.y;
       const d = Math.hypot(dx, dy);
       const spd = runnerSpeed(this.player);
       if (d < 4) {
         this.x = target.x; this.y = target.y;
+        if (this.waypointIdx < this.legPoints.length - 1) {
+          this.waypointIdx++;
+          return;
+        }
         this.base = this.nextBase;
         if (this.base < this.targetBase) {
           this.nextBase = this.base + 1;
+          this._prepareLeg();
         } else {
           this.running = false;
           this.forceOut = false;
