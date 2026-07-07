@@ -1199,17 +1199,13 @@ export class Game {
           const fieldingRole = this.activeFielderIdx >= 0
             ? this.fielders[this.activeFielderIdx].role
             : null;
-          const routineInfieldGrounder = INFIELD_ROLES.has(fieldingRole)
-            && this._pendingOutcome?.type === 'single'
-            && this._pendingOutcome?.bases === 1;
+          const fieldedByInfielder = INFIELD_ROLES.has(fieldingRole);
+          const infieldBallInPlay = fieldedByInfielder
+            && this._pendingOutcome
+            && this._pendingOutcome.type !== 'out'
+            && this._pendingOutcome.type !== 'homer';
 
-          if (routineInfieldGrounder) this._groundBallPlay = true;
-
-          if (
-            this.topInning
-            && INFIELD_ROLES.has(fieldingRole)
-            && this._pendingOutcome?.type !== 'homer'
-          ) {
+          if (infieldBallInPlay) {
             this._groundBallPlay = true;
             this._pendingOutcome = {
               type: 'single', bases: 1,
