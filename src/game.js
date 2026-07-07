@@ -665,7 +665,8 @@ export class Game {
     targetBase = this._getAutoThrowTarget(),
     { forceSafe = false, nextState = S.PLAY_RESULT } = {}
   ) {
-    if (this.state !== S.THROW_DECISION && !forceSafe) return;
+    const autoThrowFromResolvedHit = this.state === S.HIT_ANIM;
+    if (this.state !== S.THROW_DECISION && !forceSafe && !autoThrowFromResolvedHit) return;
     const basePos = BASE_POS[targetBase];
     const fielder = this.activeFielderIdx >= 0 ? this.fielders[this.activeFielderIdx] : null;
 

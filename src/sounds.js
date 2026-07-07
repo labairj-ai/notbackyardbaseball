@@ -351,7 +351,11 @@ function scheduleMusic() {
 // its title theme. Avoid early-returning for gameplay so repeated half-innings
 // cannot get stuck on the same loop.
 export function startMusic(inning) {
-  if (musicPlaying && currentInning === 'menu' && inning === 'menu') return;
+  if (musicPlaying && currentInning === 'menu' && inning === 'menu') {
+    ac();
+    if (!scheduleTimer) scheduleMusic();
+    return;
+  }
   stopMusic();
   if (inning === 'menu') {
     currentSong = MUSIC_MENU;
